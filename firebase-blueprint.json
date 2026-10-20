@@ -1,0 +1,22 @@
+{
+  "entities": {
+    "savedLocation": {
+      "title": "Saved Location",
+      "description": "A user-saved location",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "latitude", "longitude", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/savedLocations/{locationId}": {
+      "schema": { "$ref": "savedLocation" },
+      "description": "User's saved locations"
+    }
+  }
+}

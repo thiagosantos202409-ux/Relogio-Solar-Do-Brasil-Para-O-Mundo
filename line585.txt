@@ -1,0 +1,1 @@
+         if (active) return period.shift ?? 60;

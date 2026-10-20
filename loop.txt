@@ -1,0 +1,22 @@
+       for (const period of location.seasonalPeriods) {
+         if (!period.startRule || !period.endRule) continue;
+         const startDate = resolveSeasonalRuleToDate(period.startRule, year);
+         const endDate = resolveSeasonalRuleToDate(period.endRule, year);
+         if (!startDate || !endDate) continue;
+
+         const startOffsetMs = parseTimeToMinutes(period.startTime) * 60000;
+         const endOffsetMs = parseTimeToMinutes(period.endTime) * 60000;
+
+         const startLocalEpoch = startDate.getTime() + startOffsetMs;
+         const endLocalEpoch = endDate.getTime() + endOffsetMs;
+
+         let active = false;
+         if (startLocalEpoch < endLocalEpoch) {
+           active = currentStandardLocalEpoch >= startLocalEpoch && currentStandardLocalEpoch < endLocalEpoch;
+         } else {
+           active = currentStandardLocalEpoch >= startLocalEpoch || currentStandardLocalEpoch < endLocalEpoch;
+         }
+
+         if (active) return period.shift ?? 60;
+       }
+       return 0;

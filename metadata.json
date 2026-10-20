@@ -1,0 +1,11 @@
+{
+  "name": "Solaris Clock ULTRA REALISTA",
+  "description": "A dynamic clock application that balances official time with local solar time, featuring a sun-synced background gradient and GPS-based calculations. REALISTA",
+  "requestFramePermissions": [
+    "geolocation",
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
