@@ -129,6 +129,12 @@ interface RuaSolarProps {
   onCloudOpacityChange?: (opacity: number) => void;
   ramLimit: '2GB' | '4GB' | '6GB' | '8GB' | '10GB' | '12GB' | 'Unlimited';
   setRamLimit: (limit: '2GB' | '4GB' | '6GB' | '8GB' | '10GB' | '12GB' | 'Unlimited') => void;
+  streetlightOffAngle?: number;
+  onStreetlightOffAngleChange?: (val: number) => void;
+  streetlightOnAngle?: number;
+  onStreetlightOnAngleChange?: (val: number) => void;
+  isStreetlightTransitionEnabled?: boolean;
+  onStreetlightTransitionToggle?: (enabled: boolean) => void;
 }
 
 // Stylized SVG Car Component
@@ -344,7 +350,13 @@ export const RuaSolar: React.FC<RuaSolarProps> = ({
   cloudOpacity = 0.85,
   onCloudOpacityChange,
   ramLimit,
-  setRamLimit
+  setRamLimit,
+  streetlightOffAngle = -0.8,
+  onStreetlightOffAngleChange,
+  streetlightOnAngle = -6.0,
+  onStreetlightOnAngleChange,
+  isStreetlightTransitionEnabled = true,
+  onStreetlightTransitionToggle,
 }) => {
   const lat = latitude ?? 0;
   const lon = longitude ?? 0;
@@ -716,12 +728,28 @@ export const RuaSolar: React.FC<RuaSolarProps> = ({
       if (isCity24hStreetLightsOff) return 0.0; // 24h desligado no dia todo
     }
 
-    if (altitude >= 0) return 0.0; // Dia
-    if (altitude <= -6) return 1.0; // Noite plena (a partir de -6°)
+    const offA = streetlightOffAngle;
+    const onA = streetlightOnAngle;
 
-    // Transição progressiva linear: entre 0° e -6°
-    return -altitude / 6;
-  }, [altitude, sceneryMode, isCity24hStreetLightsOn, isCity24hStreetLightsOff]);
+    if (isStreetlightTransitionEnabled) {
+      if (altitude >= Math.max(offA, onA)) return 0.0;
+      if (altitude <= Math.min(offA, onA)) return 1.0;
+      const range = Math.abs(offA - onA);
+      if (range === 0) return altitude <= offA ? 1.0 : 0.0;
+      const val = (offA - altitude) / (offA - onA);
+      return Math.max(0, Math.min(1, val));
+    } else {
+      return altitude <= offA ? 1.0 : 0.0;
+    }
+  }, [
+    altitude, 
+    sceneryMode, 
+    isCity24hStreetLightsOn, 
+    isCity24hStreetLightsOff,
+    streetlightOffAngle,
+    streetlightOnAngle,
+    isStreetlightTransitionEnabled
+  ]);
 
   const isNight = streetLightIntensity > 0;
   const carHeadlightsOn = altitude <= 0;
@@ -1087,7 +1115,7 @@ export const RuaSolar: React.FC<RuaSolarProps> = ({
               {/* Building Light Threshold Slider */}
               <div className="w-full flex flex-col gap-1.5 px-1">
                 <div className="flex justify-between items-center text-[8px] font-mono uppercase tracking-wider text-white/40">
-                  <span>Limiar Rua Solar</span>
+                  <span>Limiar Prédios</span>
                   <span className="text-amber-400 font-bold">{buildingLightThreshold}°</span>
                 </div>
                 <input
@@ -1099,6 +1127,174 @@ export const RuaSolar: React.FC<RuaSolarProps> = ({
                   onChange={(e) => setBuildingLightThreshold(parseFloat(e.target.value))}
                   className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-amber-400 focus:outline-none"
                 />
+              </div>
+
+              <div className="w-full h-[1px] bg-white/10 my-0.5" />
+
+              {/* Streetlight Controls Section */}
+              <div className="w-full flex flex-col gap-2 px-1">
+                <div className="text-[8px] font-mono font-bold uppercase tracking-wider text-amber-400 flex justify-between items-center">
+                  <span>Luzes da Rua Solar</span>
+                  <span className="text-white font-black">{Math.round(streetLightIntensity * 100)}%</span>
+                </div>
+
+                {isStreetlightTransitionEnabled ? (
+                  <>
+                    {/* Off Angle (+90 to -90) */}
+                    <div className="flex flex-col gap-1 bg-black/30 p-2 rounded-xl border border-white/5">
+                      <div className="flex justify-between items-center text-[7.5px] font-mono uppercase text-white/60">
+                        <span>Desligar 100% (Acima de)</span>
+                        <span className={`px-1 py-0.5 rounded text-[7px] font-mono font-bold border ${
+                          streetlightOffAngle > 0 
+                            ? 'text-amber-300 bg-amber-400/15 border-amber-400/30' 
+                            : streetlightOffAngle < 0 
+                              ? 'text-indigo-300 bg-indigo-500/20 border-indigo-400/30' 
+                              : 'text-emerald-300 bg-emerald-500/20 border-emerald-400/30'
+                        }`}>
+                          {streetlightOffAngle > 0 ? '+ Acima do Horizonte' : streetlightOffAngle < 0 ? '- Abaixo do Horizonte' : '0 No Horizonte (Sem Lado)'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <input
+                          type="range"
+                          min="-90"
+                          max="90"
+                          step="0.1"
+                          value={streetlightOffAngle}
+                          onChange={(e) => onStreetlightOffAngleChange?.(parseFloat(e.target.value))}
+                          className="flex-1 h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-amber-400 focus:outline-none"
+                        />
+                        <div className="flex items-center gap-0.5 shrink-0 bg-black/60 border border-white/10 rounded px-1.5 py-0.5">
+                          <input
+                            type="number"
+                            min="-90"
+                            max="90"
+                            step="0.1"
+                            value={Number.isNaN(streetlightOffAngle) ? '' : streetlightOffAngle}
+                            onChange={(e) => {
+                              const v = parseFloat(e.target.value);
+                              if (!isNaN(v)) onStreetlightOffAngleChange?.(Math.max(-90, Math.min(90, v)));
+                            }}
+                            className="w-11 text-right bg-transparent text-amber-300 font-mono font-extrabold text-[10px] focus:outline-none"
+                          />
+                          <span className="text-[9px] font-mono text-white/50">°</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* On Angle (+90 to -90) */}
+                    <div className="flex flex-col gap-1 bg-black/30 p-2 rounded-xl border border-white/5">
+                      <div className="flex justify-between items-center text-[7.5px] font-mono uppercase text-white/60">
+                        <span>Ligar 100% (Abaixo de)</span>
+                        <span className={`px-1 py-0.5 rounded text-[7px] font-mono font-bold border ${
+                          streetlightOnAngle > 0 
+                            ? 'text-amber-300 bg-amber-400/15 border-amber-400/30' 
+                            : streetlightOnAngle < 0 
+                              ? 'text-indigo-300 bg-indigo-500/20 border-indigo-400/30' 
+                              : 'text-emerald-300 bg-emerald-500/20 border-emerald-400/30'
+                        }`}>
+                          {streetlightOnAngle > 0 ? '+ Acima do Horizonte' : streetlightOnAngle < 0 ? '- Abaixo do Horizonte' : '0 No Horizonte (Sem Lado)'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <input
+                          type="range"
+                          min="-90"
+                          max="90"
+                          step="0.1"
+                          value={streetlightOnAngle}
+                          onChange={(e) => onStreetlightOnAngleChange?.(parseFloat(e.target.value))}
+                          className="flex-1 h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-amber-400 focus:outline-none"
+                        />
+                        <div className="flex items-center gap-0.5 shrink-0 bg-black/60 border border-white/10 rounded px-1.5 py-0.5">
+                          <input
+                            type="number"
+                            min="-90"
+                            max="90"
+                            step="0.1"
+                            value={Number.isNaN(streetlightOnAngle) ? '' : streetlightOnAngle}
+                            onChange={(e) => {
+                              const v = parseFloat(e.target.value);
+                              if (!isNaN(v)) onStreetlightOnAngleChange?.(Math.max(-90, Math.min(90, v)));
+                            }}
+                            className="w-11 text-right bg-transparent text-amber-300 font-mono font-extrabold text-[10px] focus:outline-none"
+                          />
+                          <span className="text-[9px] font-mono text-white/50">°</span>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  /* Single Threshold Control for Direct Step Mode */
+                  <div className="flex flex-col gap-1 bg-black/30 p-2 rounded-xl border border-white/5">
+                    <div className="flex justify-between items-center text-[7.5px] font-mono uppercase text-white/60">
+                      <span>Corte Direto (&le; Ligado, &gt; Desligado)</span>
+                      <span className={`px-1 py-0.5 rounded text-[7px] font-mono font-bold border ${
+                        streetlightOffAngle > 0 
+                          ? 'text-amber-300 bg-amber-400/15 border-amber-400/30' 
+                          : streetlightOffAngle < 0 
+                            ? 'text-indigo-300 bg-indigo-500/20 border-indigo-400/30' 
+                            : 'text-emerald-300 bg-emerald-500/20 border-emerald-400/30'
+                      }`}>
+                        {streetlightOffAngle > 0 ? '+ Acima do Horizonte' : streetlightOffAngle < 0 ? '- Abaixo do Horizonte' : '0 No Horizonte (Sem Lado)'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <input
+                        type="range"
+                        min="-90"
+                        max="90"
+                        step="0.1"
+                        value={streetlightOffAngle}
+                        onChange={(e) => onStreetlightOffAngleChange?.(parseFloat(e.target.value))}
+                        className="flex-1 h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-amber-400 focus:outline-none"
+                      />
+                      <div className="flex items-center gap-0.5 shrink-0 bg-black/60 border border-white/10 rounded px-1.5 py-0.5">
+                        <input
+                          type="number"
+                          min="-90"
+                          max="90"
+                          step="0.1"
+                          value={Number.isNaN(streetlightOffAngle) ? '' : streetlightOffAngle}
+                          onChange={(e) => {
+                            const v = parseFloat(e.target.value);
+                            if (!isNaN(v)) onStreetlightOffAngleChange?.(Math.max(-90, Math.min(90, v)));
+                          }}
+                          className="w-11 text-right bg-transparent text-amber-300 font-mono font-extrabold text-[10px] focus:outline-none"
+                        />
+                        <span className="text-[9px] font-mono text-white/50">°</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Mode Toggle & Reset */}
+                <div className="flex items-center justify-between gap-1 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => onStreetlightTransitionToggle?.(!isStreetlightTransitionEnabled)}
+                    className={`flex-1 py-1 rounded text-[7px] font-mono font-bold uppercase tracking-wider border cursor-pointer ${
+                      isStreetlightTransitionEnabled
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40'
+                        : 'bg-amber-500/20 text-amber-300 border-amber-400/40'
+                    }`}
+                  >
+                    {isStreetlightTransitionEnabled ? 'Transição: Proporcional' : 'Transição: Direta (Passo)'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onStreetlightOffAngleChange?.(-0.8);
+                      onStreetlightOnAngleChange?.(-6.0);
+                      onStreetlightTransitionToggle?.(true);
+                    }}
+                    className="px-1.5 py-1 rounded text-[7px] font-mono font-bold uppercase bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 border border-amber-400/30 cursor-pointer shrink-0"
+                    title="Restaurar padrão astronômico (-0.8° e -6.0°)"
+                  >
+                    Reset (-0.8°/-6°)
+                  </button>
+                </div>
               </div>
 
               {/* Historical Trend Detailed Info */}

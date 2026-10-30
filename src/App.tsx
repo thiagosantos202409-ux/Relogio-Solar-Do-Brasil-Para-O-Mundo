@@ -66,6 +66,7 @@ import {
   getMoroccoDstInfo, 
   isMoroccoRamadanActive, 
   resolveLocationTimezoneOffset, 
+  evaluateSeasonalPeriodShift,
   MOROCCO_TRANSITION_UTC_MS, 
   getMoroccoPolicyHistory 
 } from './lib/moroccoTimezone';
@@ -704,6 +705,33 @@ export default function App() {
     localStorage.setItem('solaris_cloud_opacity', String(cloudOpacity));
   }, [cloudOpacity]);
 
+  const [streetlightOffAngle, setStreetlightOffAngle] = useState<number>(() => {
+    const saved = localStorage.getItem('solaris_streetlight_off_angle');
+    return saved !== null ? Number(saved) : -0.8;
+  });
+
+  const [streetlightOnAngle, setStreetlightOnAngle] = useState<number>(() => {
+    const saved = localStorage.getItem('solaris_streetlight_on_angle');
+    return saved !== null ? Number(saved) : -6.0;
+  });
+
+  const [isStreetlightTransitionEnabled, setIsStreetlightTransitionEnabled] = useState<boolean>(() => {
+    const saved = localStorage.getItem('solaris_streetlight_transition_enabled');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('solaris_streetlight_off_angle', String(streetlightOffAngle));
+  }, [streetlightOffAngle]);
+
+  useEffect(() => {
+    localStorage.setItem('solaris_streetlight_on_angle', String(streetlightOnAngle));
+  }, [streetlightOnAngle]);
+
+  useEffect(() => {
+    localStorage.setItem('solaris_streetlight_transition_enabled', String(isStreetlightTransitionEnabled));
+  }, [isStreetlightTransitionEnabled]);
+
   const [axialTilt, setAxialTilt] = useState<number>(() => {
     const saved = localStorage.getItem('solaris_axial_tilt');
     if (saved) {
@@ -1104,6 +1132,11 @@ export default function App() {
     
     for (const period of manualLocation.seasonalPeriods) {
        if (period.enabled === false) continue;
+       if (period.periodMode === 'selection') {
+         const evalRes = evaluateSeasonalPeriodShift(period, currentMs);
+         if (evalRes.active) return period.id || 'selection-rule';
+         continue;
+       }
        const startUpper = period.startRule?.toUpperCase() || "";
        if (startUpper === 'PERMANENTE' || startUpper === 'PERMANENT') {
          if (!isVigenciaActive(period.vigencia, period.validityType, currentMs, year)) continue;
@@ -1209,6 +1242,11 @@ export default function App() {
 
        for (const period of location.seasonalPeriods) {
          if (period.enabled === false) continue;
+         if (period.periodMode === 'selection') {
+           const evalRes = evaluateSeasonalPeriodShift(period, timeMs);
+           if (evalRes.active) return true;
+           continue;
+         }
          const startUpper = period.startRule?.toUpperCase() || "";
          if (startUpper === 'PERMANENTE' || startUpper === 'PERMANENT') {
            if (!isVigenciaActive(period.vigencia, period.validityType, timeMs, year)) continue;
@@ -1289,13 +1327,22 @@ export default function App() {
        const year = new Date(timeMs + offset * 60000).getUTCFullYear();
        const stableTimeMs = Math.floor(timeMs / 1000) * 1000;
        const currentStandardLocalEpoch = stableTimeMs + offset * 60000;
+       let totalShift = 0;
 
        for (const period of location.seasonalPeriods) {
          if (period.enabled === false) continue;
+         if (period.periodMode === 'selection') {
+           const evalRes = evaluateSeasonalPeriodShift(period, timeMs);
+           if (evalRes.active || evalRes.shift !== 0) {
+             totalShift += evalRes.shift;
+           }
+           continue;
+         }
          const startUpper = period.startRule?.toUpperCase() || "";
          if (startUpper === 'PERMANENTE' || startUpper === 'PERMANENT') {
            if (!isVigenciaActive(period.vigencia, period.validityType, timeMs, year)) continue;
-           return (parseInt(period.shift, 10) || 0);
+           totalShift += (parseInt(period.shift, 10) || 0);
+           continue;
          }
          if (!period.startRule || !period.endRule) continue;
          const startDate = resolveSeasonalRuleToDate(period.startRule, year);
@@ -1327,12 +1374,17 @@ export default function App() {
 
          if (active) {
            if (!isVigenciaActive(period.vigencia, period.validityType, timeMs, seasonBaseYear)) continue;
-           return (parseInt(period.shift, 10) || 0);
+           totalShift += (parseInt(period.shift, 10) || 0);
          }
        }
-       return 0;
+       return totalShift;
     }
-    return location.dstInfo?.hasDst ? (location.dstInfo.shift ?? 60) : 0;
+
+    // Only apply location DST shift if DST is actually active at timeMs
+    if (location.dstInfo?.hasDst && checkDSTForTime(timeMs, location, offset)) {
+      return location.dstInfo.shift ?? 60;
+    }
+    return 0;
   };
 
   const isCurrentlyDST = useMemo(() => {
@@ -1426,21 +1478,32 @@ export default function App() {
       // Se "Aceitar Variação Sazonal Prevista" estiver LIGADA:
       let seasonalShift = 0;
       const loc = manualLocation || location;
-      // 1. Se a localização possui períodos sazonais próprios explícitos:
-      if (loc?.seasonalPeriods && Array.isArray(loc.seasonalPeriods) && loc.seasonalPeriods.length > 0) {
-        seasonalShift = getActiveSeasonalShift(currentMs, loc, baseOffset);
-      } else if (managedTimeShift.active) {
-        // 2. Variação Sazonal configurada pelo usuário no Gerenciador de Temporadas:
-        seasonalShift = managedTimeShift.shiftMinutes;
-      } else if (loc) {
-        seasonalShift = getActiveSeasonalShift(currentMs, loc, baseOffset);
+
+      let locShift = 0;
+      let managerShift = 0;
+
+      if (loc) {
+        locShift = getActiveSeasonalShift(currentMs, loc, baseOffset);
       }
+
+      if (managedTimeShift.active) {
+        managerShift = managedTimeShift.shiftMinutes;
+      }
+
+      // Aplica estritamente apenas o desvio sazonal ativo pedido sem sobrepor/duplicar desvios de 2h+
+      if (managerShift !== 0) {
+        seasonalShift = managerShift;
+      } else {
+        seasonalShift = locShift;
+      }
+
       return seasonalShift + alternativeShift;
     } else {
       // Se estiver DESLIGADA: Horário padrão fixo sem variação sazonal
       return alternativeShift;
     }
   }, [enableSeasonalVariation, manualLocation, location, isSimulation, simulationDate, nowMs, baseOffset, alternativeShift, managedTimeShift]);
+
 
 
   // Dynamic Policy Engine: Refresh rules when simulation year changes
@@ -3768,6 +3831,11 @@ export default function App() {
                   solarAltitude={solarInfo.altitude}
                   language={language}
                   axialTilt={axialTilt}
+                  localCivilDate={localCivilTime}
+                  localSolarDate={solarInfo.solarDate}
+                  utcDate={new Date(nowMs)}
+                  equationOfTime={solarInfo.equationOfTime}
+                  timezoneOffset={solarInfo.timezoneOffset}
                 />
               )}
 
@@ -3956,6 +4024,10 @@ export default function App() {
                         sunrise={solarInfo.eventTimes.sunrise}
                         nauticalDusk={solarInfo.eventTimes.nauticalDusk}
                         nauticalDawn={solarInfo.eventTimes.nauticalDawn}
+                        civilDusk={solarInfo.eventTimes.civilDusk}
+                        civilDawn={solarInfo.eventTimes.civilDawn}
+                        urbanDayDurationSeconds={solarInfo.urbanDayDurationSeconds}
+                        urbanNightDurationSeconds={solarInfo.urbanNightDurationSeconds}
                       />
                     )}
                    <SolarAnalyticsPanel solarInfo={solarInfo!} t={t} />
@@ -4005,8 +4077,8 @@ export default function App() {
             </div>
           </div>
         </div>
-        {fireworksList.map(f => (
-          <Fireworks key={f.id} color={f.color} intensity={f.intensity} onComplete={() => setFireworksList(prev => prev.filter(fl => fl.id !== f.id))} />
+        {fireworksList.map((f, idx) => (
+          <Fireworks key={`firework-${f.id}-${idx}`} color={f.color} intensity={f.intensity} onComplete={() => setFireworksList(prev => prev.filter(fl => fl.id !== f.id))} />
         ))}
 
       </main>
@@ -4325,6 +4397,192 @@ export default function App() {
                       })}
                     </div>
                   </div>
+                </div>
+
+                {/* Configuração de Iluminação da Rua Solar */}
+                <div className="p-5 bg-white/5 rounded-2xl border border-white/10 flex flex-col gap-3">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="text-white font-bold text-xs uppercase tracking-[0.15em] flex items-center gap-1.5 mb-1 font-sans text-amber-400">
+                        <Sun className="w-3.5 h-3.5" />
+                        {language === 'pt' ? 'Luzes da Rua Solar (Iluminação Urbana)' : 'Street Lights (Solar Street)'}
+                      </h3>
+                      <p className="text-xs text-white/50 leading-relaxed">
+                        {language === 'pt'
+                          ? 'Configure a altitude solar (+90° a -90°) em que as luzes acendem/apagam e a transição gradual ou direta.'
+                          : 'Configure solar altitude (+90° to -90°) for lights ON/OFF and smooth or direct transition.'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setStreetlightOffAngle(-0.8);
+                        setStreetlightOnAngle(-6.0);
+                        setIsStreetlightTransitionEnabled(true);
+                      }}
+                      className="px-2 py-1 text-[10px] font-mono text-amber-400 hover:text-amber-300 bg-amber-400/10 hover:bg-amber-400/20 border border-amber-400/30 rounded cursor-pointer transition-colors shrink-0"
+                    >
+                      {language === 'pt' ? 'Redefinir Padrão' : 'Reset Default'}
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between bg-black/20 p-2.5 rounded-xl border border-white/5">
+                    <span className="text-xs text-white/80 font-medium">
+                      {language === 'pt' ? 'Modo de Transição' : 'Transition Mode'}
+                    </span>
+                    <button
+                      onClick={() => setIsStreetlightTransitionEnabled(!isStreetlightTransitionEnabled)}
+                      className={`px-3 py-1 rounded-lg text-xs font-mono font-bold transition-all border cursor-pointer ${
+                        isStreetlightTransitionEnabled
+                          ? 'bg-amber-400 text-black border-amber-400'
+                          : 'bg-white/10 text-white/60 border-white/10 hover:text-white'
+                      }`}
+                    >
+                      {isStreetlightTransitionEnabled 
+                        ? (language === 'pt' ? 'Transição Gradual' : 'Proportional Fade')
+                        : (language === 'pt' ? 'Sem Transição (Direto)' : 'Direct Step')}
+                    </button>
+                  </div>
+
+                  {isStreetlightTransitionEnabled ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-1">
+                      <div className="bg-black/20 p-3 rounded-xl border border-white/5 flex flex-col gap-2">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-white/70">{language === 'pt' ? '100% Desligado em (Acima de)' : '100% OFF at (Above)'}</span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                            streetlightOffAngle > 0 
+                              ? 'text-amber-300 bg-amber-400/15 border-amber-400/30' 
+                              : streetlightOffAngle < 0 
+                                ? 'text-indigo-300 bg-indigo-500/20 border-indigo-400/30' 
+                                : 'text-emerald-300 bg-emerald-500/20 border-emerald-400/30'
+                          }`}>
+                            {streetlightOffAngle > 0 
+                              ? (language === 'pt' ? '+ Acima do Horizonte' : '+ Above Horizon') 
+                              : streetlightOffAngle < 0 
+                                ? (language === 'pt' ? '- Abaixo do Horizonte' : '- Below Horizon') 
+                                : (language === 'pt' ? '0 No Horizonte (Sem Lado)' : '0 On Horizon (No Side)')}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="range"
+                            min="-90"
+                            max="90"
+                            step="0.1"
+                            value={streetlightOffAngle}
+                            onChange={(e) => setStreetlightOffAngle(parseFloat(e.target.value))}
+                            className="flex-1 accent-amber-400 cursor-pointer h-1.5 bg-white/20 rounded-lg"
+                          />
+                          <div className="flex items-center gap-0.5 shrink-0 bg-black/50 border border-white/10 rounded-lg px-2 py-1">
+                            <input
+                              type="number"
+                              min="-90"
+                              max="90"
+                              step="0.1"
+                              value={Number.isNaN(streetlightOffAngle) ? '' : streetlightOffAngle}
+                              onChange={(e) => {
+                                const v = parseFloat(e.target.value);
+                                if (!isNaN(v)) setStreetlightOffAngle(Math.max(-90, Math.min(90, v)));
+                              }}
+                              className="w-14 text-right bg-transparent text-amber-300 font-mono font-extrabold text-xs focus:outline-none"
+                            />
+                            <span className="text-xs font-mono text-white/50">°</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-black/20 p-3 rounded-xl border border-white/5 flex flex-col gap-2">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-white/70">{language === 'pt' ? '100% Ligado em (Abaixo de)' : '100% ON at (Below)'}</span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                            streetlightOnAngle > 0 
+                              ? 'text-amber-300 bg-amber-400/15 border-amber-400/30' 
+                              : streetlightOnAngle < 0 
+                                ? 'text-indigo-300 bg-indigo-500/20 border-indigo-400/30' 
+                                : 'text-emerald-300 bg-emerald-500/20 border-emerald-400/30'
+                          }`}>
+                            {streetlightOnAngle > 0 
+                              ? (language === 'pt' ? '+ Acima do Horizonte' : '+ Above Horizon') 
+                              : streetlightOnAngle < 0 
+                                ? (language === 'pt' ? '- Abaixo do Horizonte' : '- Below Horizon') 
+                                : (language === 'pt' ? '0 No Horizonte (Sem Lado)' : '0 On Horizon (No Side)')}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="range"
+                            min="-90"
+                            max="90"
+                            step="0.1"
+                            value={streetlightOnAngle}
+                            onChange={(e) => setStreetlightOnAngle(parseFloat(e.target.value))}
+                            className="flex-1 accent-amber-400 cursor-pointer h-1.5 bg-white/20 rounded-lg"
+                          />
+                          <div className="flex items-center gap-0.5 shrink-0 bg-black/50 border border-white/10 rounded-lg px-2 py-1">
+                            <input
+                              type="number"
+                              min="-90"
+                              max="90"
+                              step="0.1"
+                              value={Number.isNaN(streetlightOnAngle) ? '' : streetlightOnAngle}
+                              onChange={(e) => {
+                                const v = parseFloat(e.target.value);
+                                if (!isNaN(v)) setStreetlightOnAngle(Math.max(-90, Math.min(90, v)));
+                              }}
+                              className="w-14 text-right bg-transparent text-amber-300 font-mono font-extrabold text-xs focus:outline-none"
+                            />
+                            <span className="text-xs font-mono text-white/50">°</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-black/20 p-3 rounded-xl border border-white/5 flex flex-col gap-2 mt-1">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-white/70">
+                          {language === 'pt' ? 'Corte Direto (≤ 100% Ligado, > 100% Desligado)' : 'Direct Step Bound (≤ 100% ON, > 100% OFF)'}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                          streetlightOffAngle > 0 
+                            ? 'text-amber-300 bg-amber-400/15 border-amber-400/30' 
+                            : streetlightOffAngle < 0 
+                              ? 'text-indigo-300 bg-indigo-500/20 border-indigo-400/30' 
+                              : 'text-emerald-300 bg-emerald-500/20 border-emerald-400/30'
+                        }`}>
+                          {streetlightOffAngle > 0 
+                            ? (language === 'pt' ? '+ Acima do Horizonte' : '+ Above Horizon') 
+                            : streetlightOffAngle < 0 
+                              ? (language === 'pt' ? '- Abaixo do Horizonte' : '- Below Horizon') 
+                              : (language === 'pt' ? '0 No Horizonte (Sem Lado)' : '0 On Horizon (No Side)')}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range"
+                          min="-90"
+                          max="90"
+                          step="0.1"
+                          value={streetlightOffAngle}
+                          onChange={(e) => setStreetlightOffAngle(parseFloat(e.target.value))}
+                          className="flex-1 accent-amber-400 cursor-pointer h-1.5 bg-white/20 rounded-lg"
+                        />
+                        <div className="flex items-center gap-0.5 shrink-0 bg-black/50 border border-white/10 rounded-lg px-2 py-1">
+                          <input
+                            type="number"
+                            min="-90"
+                            max="90"
+                            step="0.1"
+                            value={Number.isNaN(streetlightOffAngle) ? '' : streetlightOffAngle}
+                            onChange={(e) => {
+                              const v = parseFloat(e.target.value);
+                              if (!isNaN(v)) setStreetlightOffAngle(Math.max(-90, Math.min(90, v)));
+                            }}
+                            className="w-14 text-right bg-transparent text-amber-300 font-mono font-extrabold text-xs focus:outline-none"
+                          />
+                          <span className="text-xs font-mono text-white/50">°</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* RAM Limit Section */}
@@ -4797,6 +5055,12 @@ export default function App() {
              isOptimizationMode={isOptimizationMode}
              cloudOpacity={cloudOpacity}
              onCloudOpacityChange={setCloudOpacity}
+             streetlightOffAngle={streetlightOffAngle}
+             onStreetlightOffAngleChange={setStreetlightOffAngle}
+             streetlightOnAngle={streetlightOnAngle}
+             onStreetlightOnAngleChange={setStreetlightOnAngle}
+             isStreetlightTransitionEnabled={isStreetlightTransitionEnabled}
+             onStreetlightTransitionToggle={(val) => setIsStreetlightTransitionEnabled(val)}
            />
           </motion.div>
         )}

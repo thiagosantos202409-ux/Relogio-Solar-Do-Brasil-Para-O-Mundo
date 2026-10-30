@@ -5,9 +5,13 @@ import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   app.use(express.json());
+
+  app.get("/healthz", (_req, res) => {
+    res.status(200).send("OK");
+  });
 
   // Function to initialize AI client lazily
   let aiClient: GoogleGenAI | null = null;

@@ -902,6 +902,57 @@ export const SeasonManagerModal: React.FC<SeasonManagerModalProps> = ({
                   </div>
                 </div>
 
+                {/* Overlapping / Stacking Seasonal Variations Toggle */}
+                <div className="p-4 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-purple-500/10 rounded-2xl border border-amber-500/30 flex flex-col gap-2.5 shadow-lg">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 rounded-xl bg-amber-400/20 text-amber-300 border border-amber-400/40">
+                        <Layers className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                          {isPt ? 'Sobreposição e Acúmulo de Variações Sazonais' : 'Overlapping & Stacking Seasonal Variations'}
+                        </h4>
+                        <p className="text-[9.5px] text-white/60 leading-relaxed">
+                          {isPt 
+                            ? 'Permite que regras e períodos sazonais vigentes no mesmo intervalo de datas se sobreponham e acumulem seus deslocamentos de horário (+60 min, +30 min, etc.).' 
+                            : 'Allows overlapping active seasonal rules to accumulate their time shifts (+60 min, +30 min, etc.) simultaneously.'}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setLocalConfig(prev => ({
+                        ...prev,
+                        allowOverlap: prev.allowOverlap === false ? true : false,
+                        timeChange: {
+                          ...prev.timeChange,
+                          allowOverlap: prev.allowOverlap === false ? true : false
+                        }
+                      }))}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-mono font-extrabold transition-all cursor-pointer border shrink-0 ${
+                        localConfig.allowOverlap !== false
+                          ? 'bg-amber-400 text-black border-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.3)]'
+                          : 'bg-white/10 text-white/50 border-white/10 hover:text-white'
+                      }`}
+                    >
+                      {localConfig.allowOverlap !== false
+                        ? (isPt ? 'SOBREPOSIÇÃO ATIVA' : 'OVERLAP ACTIVE')
+                        : (isPt ? 'APENAS PRIMEIRA REGRA' : 'FIRST RULE ONLY')}
+                    </button>
+                  </div>
+                  {localConfig.allowOverlap !== false && (
+                    <div className="text-[8.5px] font-mono text-amber-300/90 bg-black/40 p-2 rounded-lg border border-amber-400/20 flex items-center gap-1.5">
+                      <Sparkles className="w-3 h-3 text-amber-400 shrink-0" />
+                      <span>
+                        {isPt 
+                          ? 'Modo Empilhamento/Sobreposição Ativo: Quando duas regras sazonais coincidirem, os deslocamentos serão somados (ex: +60m + +30m = +90m).' 
+                          : 'Overlapping Active Mode: Overlapping active seasonal rules will sum their time shifts (e.g. +60m + +30m = +90m).'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
                 {/* 1.1 Ciclo Format Mode Selector */}
                 <div className="p-4 sm:p-5 bg-gradient-to-br from-white/5 to-white/[0.02] rounded-2xl border border-white/10 shadow-md">
                   <div className="flex items-center justify-between mb-3">
@@ -2776,7 +2827,7 @@ export const SeasonManagerModal: React.FC<SeasonManagerModalProps> = ({
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-white/5">
-                          {tableYears.map(yearNum => {
+                          {tableYears.map((yearNum, index) => {
                             const rowSummary = getAstronomicalSeasonSummary(yearNum);
                             const m = formatUtcFull(rowSummary.marchEquinoxUtc);
                             const j = formatUtcFull(rowSummary.juneSolsticeUtc);
@@ -2786,7 +2837,7 @@ export const SeasonManagerModal: React.FC<SeasonManagerModalProps> = ({
 
                             return (
                               <tr 
-                                key={`ephemeris-row-${yearNum}`} 
+                                key={`ephemeris-row-${yearNum}-${index}`} 
                                 className={`transition-colors hover:bg-white/5 ${isSelected ? 'bg-amber-400/10 font-bold' : ''}`}
                               >
                                 <td className="p-2 font-bold text-amber-300">

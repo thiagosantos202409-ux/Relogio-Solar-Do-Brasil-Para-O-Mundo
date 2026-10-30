@@ -88,6 +88,8 @@ export interface Translations {
   dusk: string;
   passed: string;
   sunlightDuration: string;
+  urbanDay: string;
+  urbanNight: string;
   majorSolarObservatories: string;
   travelMode: string;
   localTime: string;
@@ -192,6 +194,8 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     dusk: "Dusk",
     passed: "Passed",
     sunlightDuration: "Sunlight",
+    urbanDay: "Urban Day",
+    urbanNight: "Urban Night",
     majorSolarObservatories: "Major Solar Observatories",
     travelMode: "Travel Mode",
     localTime: "Local Time",
@@ -294,6 +298,8 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     dusk: "Crepúsculo",
     passed: "Passado",
     sunlightDuration: "Luz Solar",
+    urbanDay: "Dia Urbano",
+    urbanNight: "Noite Urbana",
     majorSolarObservatories: "Principais Observatórios Solares",
     travelMode: "Modo de Viagem",
     localTime: "Hora Local",
@@ -395,6 +401,8 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     dusk: "Crepúsculo",
     passed: "Pasado",
     sunlightDuration: "Luz Solar",
+    urbanDay: "Día Urbano",
+    urbanNight: "Noche Urbana",
     majorSolarObservatories: "Principales Observatorios Solares",
     travelMode: "Modo de Viaje",
     localTime: "Hora Local",
@@ -494,6 +502,8 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     dusk: "Crépuscule",
     passed: "Passé",
     sunlightDuration: "Lumière du jour",
+    urbanDay: "Jour Urbain",
+    urbanNight: "Nuit Urbaine",
     majorSolarObservatories: "Observatoires Solaires Majeurs",
     travelMode: "Voyage",
     localTime: "Local",
@@ -593,6 +603,8 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     dusk: "Abenddämmerung",
     passed: "Vergangen",
     sunlightDuration: "Tageslicht",
+    urbanDay: "Urbaner Tag",
+    urbanNight: "Urbane Nacht",
     majorSolarObservatories: "Wichtige Sonnenobservatorien",
     travelMode: "Reise",
     localTime: "Lokal",
@@ -692,6 +704,8 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     dusk: "Crepuscolo",
     passed: "Passato",
     sunlightDuration: "Luce solare",
+    urbanDay: "Giorno Urbano",
+    urbanNight: "Notte Urbana",
     majorSolarObservatories: "Principali Osservatori Solari",
     travelMode: "Viaggio",
     localTime: "Locale",
@@ -791,6 +805,8 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     dusk: "黄昏",
     passed: "経過",
     sunlightDuration: "日照時間",
+    urbanDay: "都市の昼",
+    urbanNight: "都市の夜",
     majorSolarObservatories: "主要太陽観測所",
     travelMode: "旅行",
     localTime: "現地",
@@ -890,6 +906,8 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     dusk: "薄暮",
     passed: "已过",
     sunlightDuration: "日照时长",
+    urbanDay: "城市白昼",
+    urbanNight: "城市黑夜",
     majorSolarObservatories: "主要太阳观测台",
     travelMode: "旅行",
     localTime: "当地",
@@ -989,6 +1007,8 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     dusk: "황혼",
     passed: "지남",
     sunlightDuration: "일조 시간",
+    urbanDay: "도시의 낮",
+    urbanNight: "도시의 밤",
     majorSolarObservatories: "주요 태양 관측소",
     travelMode: "여행",
     localTime: "현지",
@@ -1087,6 +1107,8 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     dusk: "الغسق",
     passed: "انقضى",
     sunlightDuration: "مدة ضوء الشمس",
+    urbanDay: "النهار الحضري",
+    urbanNight: "الليل الحضري",
     majorSolarObservatories: "المراصد الشمسية الرئيسية",
     travelMode: "سفر",
     localTime: "محلي",

@@ -11,6 +11,11 @@ interface OrientacaoTerrestreWidgetProps {
   solarAltitude: number;
   language?: string;
   axialTilt?: number;
+  localCivilDate?: Date | null;
+  localSolarDate?: Date | null;
+  utcDate?: Date | null;
+  equationOfTime?: number;
+  timezoneOffset?: number;
 }
 
 // Interpolate points between coordinate pairs for smooth spherical projection (100 lines per curve)
@@ -34,6 +39,28 @@ function interpolatePath(coords: [number, number][], steps = 100): [number, numb
   result.push(coords[coords.length - 1]);
   return result;
 }
+
+// Format date to XX:XX:XX (HH:MM:SS) in UTC components
+const safeFormatHHMMSS = (d: Date | null | undefined) => {
+  if (!d || isNaN(d.getTime())) return '00:00:00';
+  const h = String(d.getUTCHours()).padStart(2, '0');
+  const m = String(d.getUTCMinutes()).padStart(2, '0');
+  const s = String(d.getUTCSeconds()).padStart(2, '0');
+  return `${h}:${m}:${s}`;
+};
+
+// Format date to XX/XX/XXXX (DD/MM/YYYY) in UTC components
+const safeFormatDDMMYYYY = (d: Date | null | undefined) => {
+  if (!d || isNaN(d.getTime())) return '00/00/0000';
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const year = String(d.getUTCFullYear());
+  return `${day}/${month}/${year}`;
+};
+
+
+// ... detailed simplified Earth continent polygons kept unchanged below ...
+
 
 // Detailed simplified Earth continent polygons
 const CONTINENT_DATA_RAW: [number, number][][] = [
@@ -254,11 +281,42 @@ export const OrientacaoTerrestreWidget: React.FC<OrientacaoTerrestreWidgetProps>
   solarAltitude,
   language = 'pt',
   axialTilt = 23.44,
+  localCivilDate,
+  localSolarDate,
+  utcDate,
+  equationOfTime = 0,
 }) => {
   const isPt = language === 'pt';
   const [viewMode, setViewMode] = useState<'sun' | 'user'>('sun');
   const [showGraticule, setShowGraticule] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Fallback defaults for dates if omitted
+  const nowFallback = useMemo(() => new Date(), []);
+  const effectiveUtcDate = utcDate || nowFallback;
+  const effectiveLocalCivilDate = localCivilDate || effectiveUtcDate;
+  const effectiveLocalSolarDate = localSolarDate || effectiveUtcDate;
+
+  // Format 4 clocks in XX:XX:XX (HH:MM:SS)
+  const civilTimeStr = safeFormatHHMMSS(effectiveLocalCivilDate);
+  const localSolarTimeStr = safeFormatHHMMSS(effectiveLocalSolarDate);
+  const utcTimeStr = safeFormatHHMMSS(effectiveUtcDate);
+
+  // Global Solar UTC date = UTC Date + Equation of Time (in ms)
+  const globalSolarUtcDate = useMemo(() => {
+    if (!effectiveUtcDate || isNaN(effectiveUtcDate.getTime())) return null;
+    return new Date(effectiveUtcDate.getTime() + (equationOfTime || 0) * 60000);
+  }, [effectiveUtcDate, equationOfTime]);
+
+  const globalSolarUtcTimeStr = safeFormatHHMMSS(globalSolarUtcDate);
+
+  // Format dates in XX/XX/XXXX (DD/MM/YYYY)
+  const civilDateStr = safeFormatDDMMYYYY(effectiveLocalCivilDate);
+  const localSolarDateStr = safeFormatDDMMYYYY(effectiveLocalSolarDate);
+  const utcDateStr = safeFormatDDMMYYYY(effectiveUtcDate);
+  const globalSolarUtcDateStr = safeFormatDDMMYYYY(globalSolarUtcDate);
+
+
 
   // Determine central latitude & longitude based on view mode
   const centerLat = viewMode === 'sun' ? subsolarLat : userLat;
@@ -680,28 +738,87 @@ export const OrientacaoTerrestreWidget: React.FC<OrientacaoTerrestreWidgetProps>
           <div className="absolute bottom-10 left-10 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
 
           {/* Modal Header */}
-          <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-6">
-            <div className="flex items-center gap-3">
-              <div className="p-3 rounded-2xl bg-amber-400/20 border border-amber-400/40 text-amber-300 shadow-lg shadow-amber-400/10">
-                <Globe className="w-6 h-6 animate-spin-slow" style={{ animationDuration: '30s' }} />
+          <div className="flex flex-wrap items-center justify-between border-b border-white/10 pb-4 mb-6 gap-3">
+            {/* Title, Icon & Digital Clocks to the right of the name */}
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-2xl bg-amber-400/20 border border-amber-400/40 text-amber-300 shadow-lg shadow-amber-400/10 shrink-0">
+                  <Globe className="w-6 h-6 animate-spin-slow" style={{ animationDuration: '30s' }} />
+                </div>
+                <div>
+                  <h2 className="text-base md:text-lg font-black uppercase tracking-wider text-white flex items-center gap-2 flex-wrap">
+                    <span>{isPt ? 'Orientação Terrestre sob a Vista do Sol' : 'Earth Orientation under Solar View'}</span>
+                    <span className="text-xs bg-amber-400/20 text-amber-300 font-mono px-2 py-0.5 rounded-full border border-amber-400/40 font-bold">
+                      {isPt ? 'Globo 3D Ortográfico' : '3D Orthographic Globe'}
+                    </span>
+                  </h2>
+                  <p className="text-xs text-white/60">
+                    {isPt
+                      ? 'Projeção ortográfica completa centralizada no Ponto Subsolar (Sol a 90° perpendiculares no Zênite)'
+                      : 'Full orthographic projection centered directly at the subsolar zenith point'}
+                  </p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-base md:text-lg font-black uppercase tracking-wider text-white flex items-center gap-2">
-                  <span>{isPt ? 'Orientação Terrestre sob a Vista do Sol' : 'Earth Orientation under Solar View'}</span>
-                  <span className="text-xs bg-amber-400/20 text-amber-300 font-mono px-2 py-0.5 rounded-full border border-amber-400/40 font-bold">
-                    {isPt ? 'Globo 3D Ortográfico' : '3D Orthographic Globe'}
+
+              {/* 4 Digital Clocks in XX:XX:XX directly to the right of the name */}
+              <div className="flex items-center gap-2 flex-wrap bg-slate-900/90 p-2 rounded-2xl border border-amber-400/30 shadow-xl ml-0 xl:ml-3">
+                {/* Relógio Civil */}
+                <div className="flex flex-col items-center px-2.5 py-1 rounded-xl bg-white/5 border border-white/10 min-w-[90px]">
+                  <span className="text-[8px] font-extrabold uppercase tracking-wider text-amber-300/80 truncate">
+                    {isPt ? 'Relógio Civil' : 'Civil Clock'}
                   </span>
-                </h2>
-                <p className="text-xs text-white/60">
-                  {isPt
-                    ? 'Projeção ortográfica completa centralizada no Ponto Subsolar (Sol a 90° perpendiculares no Zênite)'
-                    : 'Full orthographic projection centered directly at the subsolar zenith point'}
-                </p>
+                  <span className="text-xs md:text-sm font-mono font-black text-amber-300 tracking-wider">
+                    {civilTimeStr}
+                  </span>
+                  <span className="text-[8.5px] font-mono font-extrabold text-amber-300/70 tracking-tight mt-0.5">
+                    {civilDateStr}
+                  </span>
+                </div>
+
+                {/* Relógio Solar Local */}
+                <div className="flex flex-col items-center px-2.5 py-1 rounded-xl bg-amber-500/10 border border-amber-500/25 min-w-[90px]">
+                  <span className="text-[8px] font-extrabold uppercase tracking-wider text-amber-400 truncate">
+                    {isPt ? 'Relógio Solar Local' : 'Local Solar Clock'}
+                  </span>
+                  <span className="text-xs md:text-sm font-mono font-black text-amber-400 tracking-wider">
+                    {localSolarTimeStr}
+                  </span>
+                  <span className="text-[8.5px] font-mono font-extrabold text-amber-400/70 tracking-tight mt-0.5">
+                    {localSolarDateStr}
+                  </span>
+                </div>
+
+                {/* Relógio UTC Global */}
+                <div className="flex flex-col items-center px-2.5 py-1 rounded-xl bg-cyan-500/10 border border-cyan-500/25 min-w-[90px]">
+                  <span className="text-[8px] font-extrabold uppercase tracking-wider text-cyan-300 truncate">
+                    {isPt ? 'Relógio UTC Global' : 'Global UTC Clock'}
+                  </span>
+                  <span className="text-xs md:text-sm font-mono font-black text-cyan-300 tracking-wider">
+                    {utcTimeStr}
+                  </span>
+                  <span className="text-[8.5px] font-mono font-extrabold text-cyan-300/70 tracking-tight mt-0.5">
+                    {utcDateStr}
+                  </span>
+                </div>
+
+                {/* Relógio Solar UTC Global */}
+                <div className="flex flex-col items-center px-2.5 py-1 rounded-xl bg-indigo-500/10 border border-indigo-500/25 min-w-[90px]">
+                  <span className="text-[8px] font-extrabold uppercase tracking-wider text-indigo-300 truncate">
+                    {isPt ? 'Relógio Solar UTC Global' : 'Global Solar UTC'}
+                  </span>
+                  <span className="text-xs md:text-sm font-mono font-black text-indigo-300 tracking-wider">
+                    {globalSolarUtcTimeStr}
+                  </span>
+                  <span className="text-[8.5px] font-mono font-extrabold text-indigo-300/70 tracking-tight mt-0.5">
+                    {globalSolarUtcDateStr}
+                  </span>
+                </div>
               </div>
             </div>
 
+
             {/* Controls */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 shrink-0">
               {/* View Switcher */}
               <div className="flex items-center bg-black/50 p-1.5 rounded-2xl border border-white/10 gap-1.5">
                 <button
@@ -750,6 +867,7 @@ export const OrientacaoTerrestreWidget: React.FC<OrientacaoTerrestreWidgetProps>
               </button>
             </div>
           </div>
+
 
           {/* Main Fullscreen Body */}
           <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">

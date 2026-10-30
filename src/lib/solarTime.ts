@@ -16,6 +16,8 @@ export interface SolarTimeResult {
   declination: number; // Solar declination in degrees
   subsolarLongitude: number; // Longitude where the sun is at the meridian
   sunlightDurationSeconds: number; // Sunlight duration in seconds
+  urbanDayDurationSeconds?: number; // Duration in seconds when solar altitude > -6°
+  urbanNightDurationSeconds?: number; // Duration in seconds when solar altitude <= -6°
   eventTimes: {
     nauticalDawn: Date | null;
     astronomicalDawn: Date | null;
@@ -227,6 +229,27 @@ export function calculateSolarTime(date: Date, longitude: number, latitude: numb
     }
   }
 
+  // Tempo de "Dia Urbano": tempo que o Sol fica acima de -6,0° de altitude solar (zênite 96.0°)
+  let urbanDayDurationSeconds = 0;
+  if (cosHCivil <= -1) {
+    urbanDayDurationSeconds = 24 * 3600;
+  } else if (cosHCivil >= 1) {
+    urbanDayDurationSeconds = 0;
+  } else {
+    const cRise = getEventTime(cosHCivil, -1);
+    const cSet = getEventTime(cosHCivil, 1);
+    if (cRise && cSet) {
+      urbanDayDurationSeconds = (cSet.getTime() - cRise.getTime()) / 1000;
+      if (urbanDayDurationSeconds < 0) {
+        urbanDayDurationSeconds += 24 * 3600;
+      }
+    } else {
+      const hCivilDeg = Math.acos(cosHCivil) * (180 / Math.PI);
+      urbanDayDurationSeconds = (2 * hCivilDeg * 4) * 60;
+    }
+  }
+  const urbanNightDurationSeconds = 24 * 3600 - urbanDayDurationSeconds;
+
   const getEventStatus = (cos: number): 'normal' | 'perpetual' | 'never_occurs' => {
     if (cos <= -1) return 'perpetual'; // Sol permanece acima do limite (zênite < limiar, altitude > limiar)
     if (cos >= 1) return 'never_occurs'; // Sol permanece abaixo do limite (não alcança a altitude necessária)
@@ -246,6 +269,8 @@ export function calculateSolarTime(date: Date, longitude: number, latitude: numb
     declination,
     subsolarLongitude,
     sunlightDurationSeconds,
+    urbanDayDurationSeconds,
+    urbanNightDurationSeconds,
     eventTimes: {
       astronomicalDawn: getEventTime(cosHAstro, -1),
       nauticalDawn: getEventTime(cosHNautical, -1),
@@ -927,11 +952,11 @@ export function checkDSTAtEpoch(
                 if (eNext) actualEndDate = eNext;
               }
               const sEpoch = sDate.getTime() - baseOffsetMinutes * 60000;
-              const eEpoch = actualEndDate.getTime() - (baseOffsetMinutes + (parseInt(period.shift, 10) || 60)) * 60000;
+              const eEpoch = actualEndDate.getTime() - (baseOffsetMinutes + (parseInt(period.shift, 10) || 0)) * 60000;
               if (epochMs >= sEpoch && epochMs < eEpoch) {
                 return { 
                   isDst: true, 
-                  shiftMinutes: parseInt(period.shift, 10) || 60, 
+                  shiftMinutes: parseInt(period.shift, 10) || 0, 
                   ruleDescription: period.description || period.name || 'Regra Sazonal Local Programada',
                   isUserProgrammed: true
                 };
@@ -963,11 +988,11 @@ export function checkDSTAtEpoch(
       if (!isNaN(sEpoch) && !isNaN(eEpoch)) {
         if (sEpoch < eEpoch) {
           if (epochMs >= sEpoch && epochMs < eEpoch) {
-            return { isDst: true, shiftMinutes: location.dstInfo.shift ?? 60, ruleDescription: location.dstInfo.ruleName || 'Horário de Verão Local', isUserProgrammed: true };
+            return { isDst: true, shiftMinutes: location.dstInfo.shift ?? 0, ruleDescription: location.dstInfo.ruleName || 'Horário de Verão Local', isUserProgrammed: true };
           }
         } else {
           if (epochMs >= sEpoch || epochMs < eEpoch) {
-            return { isDst: true, shiftMinutes: location.dstInfo.shift ?? 60, ruleDescription: location.dstInfo.ruleName || 'Horário de Verão Local', isUserProgrammed: true };
+            return { isDst: true, shiftMinutes: location.dstInfo.shift ?? 0, ruleDescription: location.dstInfo.ruleName || 'Horário de Verão Local', isUserProgrammed: true };
           }
         }
         return { isDst: false, shiftMinutes: 0, ruleDescription: 'Horário Padrão (Fora do Horário de Verão Local)', isUserProgrammed: true };
@@ -1016,7 +1041,7 @@ export function checkDSTAtEpoch(
           if (epochMs >= sTime && epochMs < eTime) {
             return {
               isDst: true,
-              shiftMinutes: p.shiftMinutes ?? tc.shiftMinutes ?? 60,
+              shiftMinutes: p.shiftMinutes ?? tc.shiftMinutes ?? 0,
               ruleDescription: tc.label || p.displayName || 'Variação Sazonal Programada pelo Usuário',
               isUserProgrammed: true
             };
@@ -1057,12 +1082,12 @@ export function checkDSTAtEpoch(
           const endLocalEpoch = rawEndDate.getTime() + parseH(tc.endTime) * 60000;
 
           const startUtc = startLocalEpoch - baseOffsetMinutes * 60000;
-          const endUtc = endLocalEpoch - (baseOffsetMinutes + (tc.shiftMinutes || 60)) * 60000;
+          const endUtc = endLocalEpoch - (baseOffsetMinutes + (tc.shiftMinutes || 0)) * 60000;
 
           if (epochMs >= startUtc && epochMs < endUtc) {
             return {
               isDst: true,
-              shiftMinutes: tc.shiftMinutes ?? 60,
+              shiftMinutes: tc.shiftMinutes ?? 0,
               ruleDescription: tc.label || 'Variação Sazonal Programada pelo Usuário',
               isUserProgrammed: true
             };
@@ -1077,7 +1102,7 @@ export function checkDSTAtEpoch(
         if (epochMs >= sTime && epochMs < eTime) {
           return {
             isDst: true,
-            shiftMinutes: tc.shiftMinutes ?? 60,
+            shiftMinutes: tc.shiftMinutes ?? 0,
             ruleDescription: tc.label || 'Variação Sazonal Programada pelo Usuário',
             isUserProgrammed: true
           };
@@ -1145,7 +1170,7 @@ export function checkDSTAtEpoch(
             else eTime += 365 * 86400000;
           }
           if (epochMs >= sTime && epochMs < eTime) {
-            const shift = seasonManagerConfig.timeChange?.shiftMinutes ?? 60;
+            const shift = seasonManagerConfig.timeChange?.shiftMinutes ?? 0;
             const ruleName = override.customStartRule || override.name || 'Variação Sazonal Customizada';
             return {
               isDst: true,

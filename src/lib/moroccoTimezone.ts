@@ -121,39 +121,110 @@ export function isMoroccoRamadanActive(timeMs: number, offset: number = 60): boo
   return currentStandardLocalEpoch >= startMs && currentStandardLocalEpoch < endMs;
 }
 
-export function parseTransitionDateToUtcMs(dateStr: string): number {
-  if (!dateStr) return NaN;
-  const trimmed = dateStr.trim();
+export function parseOffsetStringToMinutes(input: string): number {
+  if (!input) return 0;
+  const raw = input.trim().toUpperCase();
   
-  // 1. DD-MM-YYYY or DD/MM/YYYY with optional HH:mm
-  const dmyMatch = trimmed.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:\s+(\d{1,2}):?(\d{1,2})?)?/);
+  // Strip UTC or GMT prefix if present
+  const clean = raw.replace(/^(UTC|GMT)/, '').trim();
+  
+  const isNegative = clean.startsWith('-');
+  const unsigned = clean.replace(/^[+-]/, '').trim();
+  
+  if (!unsigned) return 0;
+
+  // Check if formatted as HH:MM:SS or HH:MM or numeric
+  const parts = unsigned.split(':');
+  if (parts.length >= 1 && unsigned.includes(':')) {
+    const hours = parseInt(parts[0], 10) || 0;
+    const minutes = parts.length >= 2 ? (parseInt(parts[1], 10) || 0) : 0;
+    const seconds = parts.length >= 3 ? (parseInt(parts[2], 10) || 0) : 0;
+
+    const totalMinutes = hours * 60 + minutes + seconds / 60;
+    return isNegative ? -totalMinutes : totalMinutes;
+  }
+
+  const num = parseFloat(clean);
+  if (isNaN(num)) return 0;
+  // If user entered e.g. -3 or +5.5, convert hours to minutes if magnitude <= 16
+  if (Math.abs(num) <= 16) {
+    return Math.round(num * 60);
+  }
+  return Math.round(num);
+}
+
+export function formatOffsetMinutesToString(offsetMinutes: number): string {
+  const sign = offsetMinutes < 0 ? '-' : '+';
+  const absMin = Math.abs(offsetMinutes);
+  const h = Math.floor(absMin / 60);
+  const m = Math.floor(absMin % 60);
+  const s = Math.floor((absMin * 60) % 60);
+  
+  const hh = String(h).padStart(2, '0');
+  const mm = String(m).padStart(2, '0');
+  const ss = String(s).padStart(2, '0');
+  
+  return `UTC${sign}${hh}:${mm}:${ss}`;
+}
+
+export function parseTransitionDateToUtcMs(
+  dateStr: string,
+  timeStr?: string,
+  source: 'local' | 'utc' = 'local'
+): number {
+  if (!dateStr) return NaN;
+  const trimmedDate = dateStr.trim();
+  const trimmedTime = (timeStr || '00:00:00').trim();
+  
+  let year = NaN, month = NaN, day = NaN;
+
+  // 1. DD-MM-YYYY or DD/MM/YYYY
+  const dmyMatch = trimmedDate.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
   if (dmyMatch) {
-    const d = parseInt(dmyMatch[1], 10);
-    const m = parseInt(dmyMatch[2], 10) - 1;
-    const y = parseInt(dmyMatch[3], 10);
-    const h = dmyMatch[4] ? parseInt(dmyMatch[4], 10) : 0;
-    const min = dmyMatch[5] ? parseInt(dmyMatch[5], 10) : 0;
-    return Date.UTC(y, m, d, h, min);
+    day = parseInt(dmyMatch[1], 10);
+    month = parseInt(dmyMatch[2], 10) - 1;
+    year = parseInt(dmyMatch[3], 10);
+  } else {
+    // 2. YYYY-MM-DD or YYYY/MM/DD
+    const ymdMatch = trimmedDate.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (ymdMatch) {
+      year = parseInt(ymdMatch[1], 10);
+      month = parseInt(ymdMatch[2], 10) - 1;
+      day = parseInt(ymdMatch[3], 10);
+    }
   }
 
-  // 2. YYYY-MM-DD or YYYY/MM/DD with optional HH:mm
-  const ymdMatch = trimmed.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T\s](\d{1,2}):?(\d{1,2})?)?/);
-  if (ymdMatch) {
-    const y = parseInt(ymdMatch[1], 10);
-    const m = parseInt(ymdMatch[2], 10) - 1;
-    const d = parseInt(ymdMatch[3], 10);
-    const h = ymdMatch[4] ? parseInt(ymdMatch[4], 10) : 0;
-    const min = ymdMatch[5] ? parseInt(ymdMatch[5], 10) : 0;
-    return Date.UTC(y, m, d, h, min);
+  if (isNaN(year) || isNaN(month) || isNaN(day)) {
+    const parsed = Date.parse(trimmedDate + ' ' + trimmedTime);
+    return isNaN(parsed) ? NaN : parsed;
   }
 
-  // 3. Fallback standard parse
-  const parsed = Date.parse(trimmed);
-  return isNaN(parsed) ? NaN : parsed;
+  let hours = 0, minutes = 0, seconds = 0;
+  const timeParts = trimmedTime.split(':');
+  if (timeParts.length >= 1) hours = parseInt(timeParts[0], 10) || 0;
+  if (timeParts.length >= 2) minutes = parseInt(timeParts[1], 10) || 0;
+  if (timeParts.length >= 3) seconds = parseInt(timeParts[2], 10) || 0;
+
+  return Date.UTC(year, month, day, hours, minutes, seconds);
 }
 
 export function resolveLocationTimezoneOffset(
-  loc: { name?: string; description?: string; policyHistory?: string; latitude?: number; longitude?: number; timezoneOffset?: number; baseOffsetTransitions?: { date: string; newOffset: number }[] } | null | undefined,
+  loc: {
+    name?: string;
+    description?: string;
+    policyHistory?: string;
+    latitude?: number;
+    longitude?: number;
+    timezoneOffset?: number;
+    baseOffsetTransitions?: {
+      date: string;
+      time?: string;
+      source?: 'local' | 'utc';
+      offset?: string;
+      newOffset: number;
+      validityType?: 'from' | 'single' | 'until' | 'permanent';
+    }[];
+  } | null | undefined,
   timeMs: number
 ): number {
   if (!loc) return 0;
@@ -165,15 +236,24 @@ export function resolveLocationTimezoneOffset(
   if (loc.baseOffsetTransitions && loc.baseOffsetTransitions.length > 0) {
     // Sort transitions in reverse chronological order to find the latest applicable transition
     const sorted = [...loc.baseOffsetTransitions].sort((a, b) => {
-      const msA = parseTransitionDateToUtcMs(a.date);
-      const msB = parseTransitionDateToUtcMs(b.date);
+      const msA = parseTransitionDateToUtcMs(a.date, a.time, a.source);
+      const msB = parseTransitionDateToUtcMs(b.date, b.time, b.source);
       return msB - msA;
     });
 
     for (const transition of sorted) {
-      const transUtcMs = parseTransitionDateToUtcMs(transition.date);
-      if (!isNaN(transUtcMs) && timeMs >= transUtcMs) {
-        return transition.newOffset;
+      const transUtcMs = parseTransitionDateToUtcMs(transition.date, transition.time, transition.source);
+      const vType = transition.validityType || 'from';
+
+      if (!isNaN(transUtcMs)) {
+        if (vType === 'from' || vType === 'permanent') {
+          if (timeMs >= transUtcMs) return transition.newOffset;
+        } else if (vType === 'until') {
+          if (timeMs <= transUtcMs) return transition.newOffset;
+        } else if (vType === 'single') {
+          const endOfDayMs = transUtcMs + 86400000;
+          if (timeMs >= transUtcMs && timeMs < endOfDayMs) return transition.newOffset;
+        }
       }
     }
   }
@@ -186,4 +266,45 @@ export function getMoroccoPolicyHistory(isPt: boolean = true): string {
     return "No caso do país Marrocos, até 20/09/2026 às 01:00 UTC operava em UTC+1 (GMT+1 / WEST). A partir de 20/09/2026 às 01:00 UTC (com a transição das 02:00 para as 01:00 no horário local), o Marrocos passa de UTC+1 para UTC+0 permanente, extinguindo o horário de verão e unificando todo o país no meridiano de Greenwich.";
   }
   return "In the case of Morocco, until September 20, 2026 at 01:00 UTC it operated on UTC+1 (GMT+1 / WEST). Starting from September 20, 2026 at 01:00 UTC (transitioning from 02:00 to 01:00 local time), Morocco transitions from UTC+1 to permanent UTC+0, abolishing seasonal shifts and unifying the country on the Greenwich meridian.";
+}
+
+export function evaluateSeasonalPeriodShift(
+  period: any,
+  timeMs: number
+): { active: boolean; shift: number } {
+  if (!period || period.enabled === false) return { active: false, shift: 0 };
+
+  // Mode "Seleção"
+  if (period.periodMode === 'selection') {
+    if (!period.startDate) return { active: false, shift: 0 };
+
+    const startUtcMs = parseTransitionDateToUtcMs(period.startDate, period.startTimeSelection || '00:00:00', period.startClockSource || 'local');
+    if (isNaN(startUtcMs)) return { active: false, shift: 0 };
+
+    const isPermanent = period.isEndPermanent || period.endDate?.toUpperCase() === 'PERMANENTE' || period.endDate?.toUpperCase() === 'PERMANENT';
+
+    if (isPermanent) {
+      if (timeMs >= startUtcMs) {
+        const initShift = parseInt(period.initialShift ?? period.shift ?? "60", 10);
+        return { active: true, shift: isNaN(initShift) ? 60 : initShift };
+      }
+      return { active: false, shift: 0 };
+    }
+
+    if (!period.endDate) return { active: false, shift: 0 };
+    const endUtcMs = parseTransitionDateToUtcMs(period.endDate, period.endTimeSelection || '00:00:00', period.endClockSource || 'local');
+
+    if (isNaN(endUtcMs)) return { active: false, shift: 0 };
+
+    if (timeMs >= startUtcMs && timeMs < endUtcMs) {
+      const initShift = parseInt(period.initialShift ?? period.shift ?? "60", 10);
+      return { active: true, shift: isNaN(initShift) ? 60 : initShift };
+    } else if (timeMs >= endUtcMs) {
+      const finShift = parseInt(period.finalShift ?? "0", 10);
+      return { active: finShift !== 0, shift: isNaN(finShift) ? 0 : finShift };
+    }
+    return { active: false, shift: 0 };
+  }
+
+  return { active: false, shift: 0 };
 }

@@ -2,6 +2,16 @@ import { FEATURED_LOCATIONS, MAJOR_SOLAR_OBSERVATORIES, EXTREME_LATITUDE_LOCATIO
 import { getMoroccoTimezoneOffset } from "../lib/moroccoTimezone";
 import { parseCoordinates } from "../lib/coordinateParser";
 
+export interface BaseOffsetTransition {
+  id?: string;
+  date: string; // XX/XX/XXXX (DD/MM/YYYY)
+  time?: string; // XX:XX:XX (HH:MM:SS)
+  source?: 'local' | 'utc';
+  offset?: string; // UTC+/- XX:XX:XX
+  newOffset: number; // in minutes relative to UTC
+  validityType?: 'from' | 'single' | 'until' | 'permanent'; // Tipo de vigência
+}
+
 export interface LocationSuggestion {
   name: string;
   latitude: number;
@@ -16,18 +26,34 @@ export interface LocationSuggestion {
     shift?: number; // shift in minutes (defaults to 60 if not present)
   };
   seasonalPeriods?: {
+    id?: string;
+    periodMode?: 'standard' | 'selection';
     startRule: string;
     endRule: string;
     shift?: number;
+    startTime?: string;
+    endTime?: string;
+    vigencia?: string;
+    validityType?: 'single' | 'range';
+    enabled?: boolean;
+    isPermanent?: boolean;
+
+    // "Seleção" mode fields
+    startDate?: string;
+    startTimeSelection?: string;
+    startClockSource?: 'local' | 'utc';
+    initialShift?: string;
+    endDate?: string;
+    endTimeSelection?: string;
+    endClockSource?: 'local' | 'utc';
+    finalShift?: string;
+    isEndPermanent?: boolean;
   }[];
   alternativeTimes?: {
     name: string; // e.g., "Urumqi Time"
     shift: number; // shift in minutes (e.g., -120)
   }[];
-  baseOffsetTransitions?: {
-    date: string; // DD-MM-YYYY HH:mm
-    newOffset: number; // in minutes
-  }[];
+  baseOffsetTransitions?: BaseOffsetTransition[];
 }
 
 // Simple cache to avoid repeated calls for the same query/year/language

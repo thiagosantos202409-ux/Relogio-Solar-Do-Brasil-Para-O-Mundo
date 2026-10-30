@@ -24,11 +24,13 @@ import { SeasonalTimeline } from './SeasonalTimeline';
 import { SeasonalSummaryCard } from './SeasonalSummaryCard';
 import { SeasonalTable } from './SeasonalTable';
 import { TimelineScrubber } from './TimelineScrubber';
-import { PermanentChangeTab } from './PermanentChangeTab';
+import { PermanentChangeTab, PermanentChange } from './PermanentChangeTab';
 import { isVigenciaActive, resolveSeasonalRule, parseRuleTimeToMinutes } from '../lib/seasonalTheme';
+import { parseOffsetStringToMinutes, formatOffsetMinutesToString } from '../lib/moroccoTimezone';
 
 export interface SeasonalPeriodItem {
   id: string;
+  periodMode?: 'standard' | 'selection';
   startRule: string;
   endRule: string;
   shift: string;
@@ -38,6 +40,17 @@ export interface SeasonalPeriodItem {
   endTime?: string;
   duration?: string;
   enabled: boolean;
+
+  // "Seleção" mode fields ("Que tempo vai vigorar a mudança")
+  startDate?: string;
+  startTimeSelection?: string;
+  startClockSource?: 'local' | 'utc';
+  initialShift?: string;
+  endDate?: string;
+  endTimeSelection?: string;
+  endClockSource?: 'local' | 'utc';
+  finalShift?: string;
+  isEndPermanent?: boolean;
 }
 
 interface LocationSearchModalProps {
@@ -159,14 +172,8 @@ export const LocationSearchModal: React.FC<LocationSearchModalProps> = ({
   // Tab state
   const [activeTab, setActiveTab] = useState<'config' | 'permanent'>('config');
 
-  // Permanent Timezone Changes
-  const [permanentTimezoneChanges, setPermanentTimezoneChanges] = useState<{
-    id: string;
-    date: string; // DD/MM/YYYY
-    time: string; // HH:mm:ss
-    source: 'local' | 'utc';
-    offset: string; // UTC+/- HH:mm
-  }[]>([]);
+  // Permanent Timezone Changes (Historical)
+  const [permanentTimezoneChanges, setPermanentTimezoneChanges] = useState<PermanentChange[]>([]);
 
   // Deleted locations persistence
   const [deletedLocationKeys, setDeletedLocationKeys] = useState<string[]>(() => {
@@ -432,16 +439,38 @@ export const LocationSearchModal: React.FC<LocationSearchModalProps> = ({
           setSeasonalMode('seasonal');
           setSeasonalPeriods(manualLocation.seasonalPeriods.map(p => ({
             id: p.id || Math.random().toString(),
-            startRule: p.startRule,
-            endRule: p.endRule,
-            shift: String(p.shift),
+            periodMode: p.periodMode || 'standard',
+            startRule: p.startRule || "",
+            endRule: p.endRule || "",
+            shift: String(p.shift ?? "60"),
             startTime: p.startTime || "00:00",
             endTime: p.endTime || "00:00",
             vigencia: p.vigencia || "",
             validityType: p.validityType || 'single',
-            enabled: p.enabled !== false
+            enabled: p.enabled !== false,
+
+            // "Seleção" mode fields
+            startDate: p.startDate,
+            startTimeSelection: p.startTimeSelection,
+            startClockSource: p.startClockSource,
+            initialShift: p.initialShift,
+            endDate: p.endDate,
+            endTimeSelection: p.endTimeSelection,
+            endClockSource: p.endClockSource,
+            finalShift: p.finalShift,
+            isEndPermanent: p.isEndPermanent
           })));
         }
+      }
+      if (manualLocation.baseOffsetTransitions && manualLocation.baseOffsetTransitions.length > 0) {
+        setPermanentTimezoneChanges(manualLocation.baseOffsetTransitions.map(t => ({
+          id: t.id || `perm-${Math.random().toString(36).substring(2, 6)}`,
+          date: t.date,
+          time: t.time || '00:00:00',
+          source: t.source || 'local',
+          offset: t.offset || formatOffsetMinutesToString(t.newOffset),
+          validityType: t.validityType || 'from'
+        })));
       }
     }
   }, [isOpen, manualLocation]);
@@ -578,17 +607,63 @@ export const LocationSearchModal: React.FC<LocationSearchModalProps> = ({
           }];
         } else {
           finalSeasonalPeriods = seasonalPeriods
-            .filter(p => p.startRule.trim() && p.endRule.trim())
-            .map(p => ({
-              startRule: p.startRule.trim(),
-              endRule: p.endRule.trim(),
-              shift: parseInt(p.shift, 10) || 60,
-              startTime: p.startTime || "00:00",
-              endTime: p.endTime || "00:00",
-              vigencia: p.vigencia || "",
-              validityType: p.validityType || 'single',
-              enabled: p.enabled !== false
-            }));
+            .filter(p => p.periodMode === 'selection' ? (p.startDate && (p.endDate || p.isEndPermanent)) : (p.startRule.trim() && p.endRule.trim()))
+            .map(p => {
+              const isSelection = p.periodMode === 'selection';
+              const isEndPerm = p.isEndPermanent || p.endDate?.toUpperCase() === 'PERMANENTE' || p.endDate?.toUpperCase() === 'PERMANENT';
+
+              if (isSelection) {
+                // Modo Seleção Ativado: Desligue 100% o Modo Temporada Padrão
+                return {
+                  id: p.id,
+                  periodMode: 'selection',
+                  startRule: '',
+                  endRule: '',
+                  shift: parseInt(p.initialShift || p.shift || "60", 10) || 60,
+                  startTime: "00:00",
+                  endTime: "00:00",
+                  vigencia: "",
+                  validityType: 'single',
+                  enabled: p.enabled !== false,
+
+                  // Mantenha exclusivamente os campos da Seleção
+                  startDate: p.startDate,
+                  startTimeSelection: p.startTimeSelection || '00:00:00',
+                  startClockSource: p.startClockSource || 'local',
+                  initialShift: p.initialShift || '+60',
+                  endDate: isEndPerm ? 'Permanente' : p.endDate,
+                  endTimeSelection: p.endTimeSelection || '00:00:00',
+                  endClockSource: p.endClockSource || 'local',
+                  finalShift: p.finalShift || '0',
+                  isEndPermanent: isEndPerm
+                };
+              } else {
+                // Modo Temporada Padrão Ativado: Desligue 100% o Modo Seleção
+                return {
+                  id: p.id,
+                  periodMode: 'standard',
+                  startRule: p.startRule.trim(),
+                  endRule: p.endRule.trim(),
+                  shift: parseInt(p.shift, 10) || 60,
+                  startTime: p.startTime || "00:00",
+                  endTime: p.endTime || "00:00",
+                  vigencia: p.vigencia || "",
+                  validityType: p.validityType || 'single',
+                  enabled: p.enabled !== false,
+
+                  // Zere 100% os campos de Seleção
+                  startDate: undefined,
+                  startTimeSelection: undefined,
+                  startClockSource: undefined,
+                  initialShift: undefined,
+                  endDate: undefined,
+                  endTimeSelection: undefined,
+                  endClockSource: undefined,
+                  finalShift: undefined,
+                  isEndPermanent: undefined
+                };
+              }
+            });
         }
       } else if (utcSourceMode === 'noaa' && selectedNoaaSystem.seasonalPeriods && selectedNoaaSystem.seasonalPeriods.length > 0) {
         finalSeasonalPeriods = undefined;
@@ -602,6 +677,18 @@ export const LocationSearchModal: React.FC<LocationSearchModalProps> = ({
         ? selectedNoaaSystem.code
         : (timezoneMode === 'geographic' ? 'Geográfica' : customTimezone);
 
+      const baseOffsetTransitions = permanentTimezoneChanges.length > 0
+        ? permanentTimezoneChanges.map(c => ({
+            id: c.id,
+            date: c.date,
+            time: c.time,
+            source: c.source,
+            offset: c.offset,
+            newOffset: parseOffsetStringToMinutes(c.offset),
+            validityType: c.validityType
+          }))
+        : undefined;
+
       onSelectLocation({
         name: customName.trim() || defaultName,
         latitude: lat,
@@ -611,16 +698,20 @@ export const LocationSearchModal: React.FC<LocationSearchModalProps> = ({
             ? (seasonalMode === 'permanent' 
                 ? (language === 'pt' ? ` [Variação Permanente: ${permanentStartRule} ➔ ${permanentEndRule} (+${permanentShift || '60'}m)]` : ` [Permanent Shift: ${permanentStartRule} ➔ ${permanentEndRule} (+${permanentShift || '60'}m)]`)
                 : (language === 'pt' ? ` [Sazonal: ${finalSeasonalPeriods.length}]` : ` [Seasonal: ${finalSeasonalPeriods.length}]`))
+            : "") +
+          (baseOffsetTransitions && baseOffsetTransitions.length > 0
+            ? (language === 'pt' ? ` [Transições: ${baseOffsetTransitions.length}]` : ` [Transitions: ${baseOffsetTransitions.length}]`)
             : ""),
         timezoneOffset: offset,
         alternativeTimes: [],
         seasonalPeriods: finalSeasonalPeriods,
+        baseOffsetTransitions,
         policyHistory: appliedPolicyHistory,
         dstInfo: appliedDstInfo
       });
       onClose();
     }
-  }, [customLat, customLon, customName, customTimezone, timezoneMode, utcSourceMode, selectedNoaaSystem, enableSeasonalVariation, seasonalMode, permanentStartRule, permanentStartTime, permanentEndRule, permanentEndTime, permanentShift, seasonalPeriods, language, onSelectLocation, onClose]);
+  }, [customLat, customLon, customName, customTimezone, timezoneMode, utcSourceMode, selectedNoaaSystem, enableSeasonalVariation, seasonalMode, permanentStartRule, permanentStartTime, permanentEndRule, permanentEndTime, permanentShift, seasonalPeriods, permanentTimezoneChanges, language, onSelectLocation, onClose]);
 
   if (!isOpen) return null;
 
@@ -780,22 +871,32 @@ export const LocationSearchModal: React.FC<LocationSearchModalProps> = ({
 
         {/* Posição Personalizada */}
         <div className="mb-6 p-4 rounded-2xl bg-white/5 border border-white/10">
-          <div className="flex bg-black/40 rounded-xl p-1 mb-4">
+          <div className="flex bg-black/40 rounded-xl p-1 mb-4 border border-white/10">
             <button
               onClick={() => setActiveTab('config')}
-              className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition-all ${
-                activeTab === 'config' ? 'bg-amber-400 text-black' : 'text-white/40 hover:text-white'
+              className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                activeTab === 'config' ? 'bg-amber-400 text-black shadow-md font-extrabold' : 'text-white/40 hover:text-white'
               }`}
             >
-              {language === 'pt' ? 'Configuração' : 'Configuration'}
+              <span>{language === 'pt' ? 'Variação Sazonal' : 'Seasonal Variation'}</span>
+              {enableSeasonalVariation && (
+                <span className={`text-[8.5px] font-mono font-extrabold px-1.5 py-0.2 rounded-full ${activeTab === 'config' ? 'bg-black/20 text-black' : 'bg-amber-400/20 text-amber-300'}`}>
+                  {seasonalMode === 'permanent' ? '1' : seasonalPeriods.length}
+                </span>
+              )}
             </button>
             <button
               onClick={() => setActiveTab('permanent')}
-              className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition-all ${
-                activeTab === 'permanent' ? 'bg-amber-400 text-black' : 'text-white/40 hover:text-white'
+              className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                activeTab === 'permanent' ? 'bg-amber-400 text-black shadow-md font-extrabold' : 'text-white/40 hover:text-white'
               }`}
             >
-              {language === 'pt' ? 'Mudança Permanente' : 'Permanent Change'}
+              <span>{language === 'pt' ? 'Mudança De Fuso Horario Local Previsto Por Local' : 'Local Timezone Change Predicted By Location'}</span>
+              {permanentTimezoneChanges.length > 0 && (
+                <span className={`text-[8.5px] font-mono font-extrabold px-1.5 py-0.2 rounded-full ${activeTab === 'permanent' ? 'bg-black/20 text-black' : 'bg-emerald-400/20 text-emerald-300'}`}>
+                  {permanentTimezoneChanges.length}
+                </span>
+              )}
             </button>
           </div>
           
@@ -882,7 +983,9 @@ export const LocationSearchModal: React.FC<LocationSearchModalProps> = ({
             </div>
           </div>
 
-          {/* Método de Definição da Diferença UTC */}
+          {activeTab === 'config' ? (
+            <>
+              {/* Método de Definição da Diferença UTC */}
           <div className="mb-3">
             <label className="text-[8px] font-bold text-white/50 uppercase tracking-wider block mb-1.5 flex items-center justify-between">
               <span>{language === 'pt' ? 'Método de Definição da Diferença UTC' : 'UTC Offset Definition Method'}</span>
@@ -1792,8 +1895,243 @@ export const LocationSearchModal: React.FC<LocationSearchModalProps> = ({
                               </div>
                             </div>
 
-                            {/* Regras de Transição (Início e Fim) */}
-                            <div className="grid grid-cols-5 gap-2">
+                            {/* Selector de Modo da Temporada: Temporada Padrão vs Seleção */}
+                            <div className="flex bg-black/40 rounded-xl p-1 border border-white/10">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const updated = [...seasonalPeriods];
+                                  updated[index].periodMode = 'standard';
+                                  setSeasonalPeriods(updated);
+                                }}
+                                className={`flex-1 py-1 px-2 text-[9px] font-bold rounded-lg transition-all cursor-pointer ${
+                                  (period.periodMode || 'standard') === 'standard'
+                                    ? 'bg-amber-400 text-black shadow-sm font-extrabold'
+                                    : 'text-white/50 hover:text-white'
+                                }`}
+                              >
+                                {language === 'pt' ? 'Temporada Padrão' : 'Standard Season'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const updated = [...seasonalPeriods];
+                                  updated[index].periodMode = 'selection';
+                                  if (!updated[index].startDate) updated[index].startDate = '20/09/2026';
+                                  if (!updated[index].startTimeSelection) updated[index].startTimeSelection = '01:00:00';
+                                  if (!updated[index].startClockSource) updated[index].startClockSource = 'local';
+                                  if (!updated[index].initialShift) updated[index].initialShift = '+60';
+                                  if (!updated[index].endDate) updated[index].endDate = '21/03/2027';
+                                  if (!updated[index].endTimeSelection) updated[index].endTimeSelection = '00:00:00';
+                                  if (!updated[index].endClockSource) updated[index].endClockSource = 'local';
+                                  if (!updated[index].finalShift) updated[index].finalShift = '0';
+                                  setSeasonalPeriods(updated);
+                                }}
+                                className={`flex-1 py-1 px-2 text-[9px] font-bold rounded-lg transition-all cursor-pointer ${
+                                  period.periodMode === 'selection'
+                                    ? 'bg-amber-400 text-black shadow-sm font-extrabold'
+                                    : 'text-white/50 hover:text-white'
+                                }`}
+                              >
+                                {language === 'pt' ? 'Seleção' : 'Selection'}
+                              </button>
+                            </div>
+
+                            {/* Conteúdo por Modo: Seleção vs Temporada Padrão */}
+                            {period.periodMode === 'selection' ? (
+                              <div className="p-2.5 bg-black/40 border border-white/10 rounded-xl space-y-3">
+                                <div className="flex items-center justify-between border-b border-white/10 pb-1">
+                                  <span className="text-[9px] font-bold text-amber-300 uppercase tracking-wider">
+                                    {language === 'pt' ? 'Que Tempo Vai Vigorar A Mudança' : 'Active Time Change Duration'}
+                                  </span>
+                                  <span className="text-[8px] font-mono font-bold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded border border-amber-400/20">
+                                    {language === 'pt' ? 'Modo Seleção' : 'Selection Mode'}
+                                  </span>
+                                </div>
+
+                                {/* Início da Mudança */}
+                                <div className="space-y-1.5 bg-white/5 p-2 rounded-lg border border-white/5">
+                                  <span className="text-[8px] font-bold text-emerald-300 uppercase tracking-wider block">
+                                    {language === 'pt' ? 'Início da Mudança:' : 'Start of Change:'}
+                                  </span>
+                                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-xs">
+                                    <div>
+                                      <label className="text-[7.5px] font-bold text-white/40 uppercase block mb-0.5">Data Início</label>
+                                      <input
+                                        type="text"
+                                        placeholder="XX/XX/XXXX"
+                                        value={period.startDate || '20/09/2026'}
+                                        onChange={(e) => {
+                                          const updated = [...seasonalPeriods];
+                                          updated[index].startDate = e.target.value;
+                                          setSeasonalPeriods(updated);
+                                        }}
+                                        className="w-full bg-black/60 border border-white/10 rounded py-1 px-2 text-[10px] font-mono text-white placeholder:text-white/20 focus:outline-none focus:border-amber-400/50"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[7.5px] font-bold text-white/40 uppercase block mb-0.5">Hora Início</label>
+                                      <input
+                                        type="text"
+                                        placeholder="XX:XX:XX"
+                                        value={period.startTimeSelection || '01:00:00'}
+                                        onChange={(e) => {
+                                          const updated = [...seasonalPeriods];
+                                          updated[index].startTimeSelection = e.target.value;
+                                          setSeasonalPeriods(updated);
+                                        }}
+                                        className="w-full bg-black/60 border border-white/10 rounded py-1 px-2 text-[10px] font-mono text-white placeholder:text-white/20 focus:outline-none focus:border-amber-400/50"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[7.5px] font-bold text-white/40 uppercase block mb-0.5">Origem</label>
+                                      <select
+                                        value={period.startClockSource || 'local'}
+                                        onChange={(e) => {
+                                          const updated = [...seasonalPeriods];
+                                          updated[index].startClockSource = e.target.value as 'local' | 'utc';
+                                          setSeasonalPeriods(updated);
+                                        }}
+                                        className="w-full bg-black/60 border border-white/10 rounded py-1 px-1.5 text-[10px] text-white focus:outline-none focus:border-amber-400/50 cursor-pointer"
+                                      >
+                                        <option value="local">Hora Local</option>
+                                        <option value="utc">Hora UTC</option>
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <label className="text-[7.5px] font-bold text-amber-300 uppercase block mb-0.5">Desvio Inicial</label>
+                                      <input
+                                        type="text"
+                                        placeholder="+60"
+                                        value={period.initialShift || '+60'}
+                                        onChange={(e) => {
+                                          const updated = [...seasonalPeriods];
+                                          updated[index].initialShift = e.target.value;
+                                          setSeasonalPeriods(updated);
+                                        }}
+                                        className="w-full bg-black/60 border border-white/10 rounded py-1 px-2 text-[10px] font-mono text-amber-300 font-bold placeholder:text-white/20 focus:outline-none focus:border-amber-400/50"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Fim da Mudança */}
+                                <div className="space-y-1.5 bg-white/5 p-2 rounded-lg border border-white/5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[8px] font-bold text-rose-300 uppercase tracking-wider block">
+                                      {language === 'pt' ? 'Fim da Mudança:' : 'End of Change:'}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const updated = [...seasonalPeriods];
+                                        const isCurrentlyPerm = updated[index].isEndPermanent || updated[index].endDate?.toUpperCase() === 'PERMANENTE';
+                                        if (isCurrentlyPerm) {
+                                          updated[index].isEndPermanent = false;
+                                          updated[index].endDate = '21/03/2027';
+                                        } else {
+                                          updated[index].isEndPermanent = true;
+                                          updated[index].endDate = 'Permanente';
+                                        }
+                                        setSeasonalPeriods(updated);
+                                      }}
+                                      className={`text-[8px] font-mono font-bold px-2 py-0.5 rounded transition-all cursor-pointer ${
+                                        (period.isEndPermanent || period.endDate?.toUpperCase() === 'PERMANENTE')
+                                          ? 'bg-amber-400 text-black border border-amber-300 shadow-sm'
+                                          : 'bg-white/10 hover:bg-white/20 text-white/70 border border-white/10'
+                                      }`}
+                                    >
+                                      {(period.isEndPermanent || period.endDate?.toUpperCase() === 'PERMANENTE')
+                                        ? (language === 'pt' ? '✓ Fim Permanente (Fixado)' : '✓ Permanent End (Fixed)')
+                                        : (language === 'pt' ? '+ Tornar Permanente' : '+ Make Permanent')}
+                                    </button>
+                                  </div>
+
+                                  {(period.isEndPermanent || period.endDate?.toUpperCase() === 'PERMANENTE') ? (
+                                    <div className="p-2 bg-amber-400/10 border border-amber-400/30 rounded flex items-center justify-between text-[9px] font-mono text-amber-300">
+                                      <span className="font-bold">
+                                        {language === 'pt' ? '📌 Permanente: O Desvio Inicial vigorará para sempre a partir da Data Início.' : '📌 Permanent: Initial Shift will remain active indefinitely from Start Date.'}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const updated = [...seasonalPeriods];
+                                          updated[index].isEndPermanent = false;
+                                          updated[index].endDate = '21/03/2027';
+                                          setSeasonalPeriods(updated);
+                                        }}
+                                        className="text-[8px] underline text-amber-200 hover:text-white cursor-pointer ml-2"
+                                      >
+                                        {language === 'pt' ? 'Alterar' : 'Change'}
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-xs">
+                                      <div>
+                                        <label className="text-[7.5px] font-bold text-white/40 uppercase block mb-0.5">Data Fim</label>
+                                        <input
+                                          type="text"
+                                          placeholder="XX/XX/XXXX"
+                                          value={period.endDate || '21/03/2027'}
+                                          onChange={(e) => {
+                                            const updated = [...seasonalPeriods];
+                                            updated[index].endDate = e.target.value;
+                                            setSeasonalPeriods(updated);
+                                          }}
+                                          className="w-full bg-black/60 border border-white/10 rounded py-1 px-2 text-[10px] font-mono text-white placeholder:text-white/20 focus:outline-none focus:border-amber-400/50"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[7.5px] font-bold text-white/40 uppercase block mb-0.5">Hora Fim</label>
+                                        <input
+                                          type="text"
+                                          placeholder="XX:XX:XX"
+                                          value={period.endTimeSelection || '00:00:00'}
+                                          onChange={(e) => {
+                                            const updated = [...seasonalPeriods];
+                                            updated[index].endTimeSelection = e.target.value;
+                                            setSeasonalPeriods(updated);
+                                          }}
+                                          className="w-full bg-black/60 border border-white/10 rounded py-1 px-2 text-[10px] font-mono text-white placeholder:text-white/20 focus:outline-none focus:border-amber-400/50"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[7.5px] font-bold text-white/40 uppercase block mb-0.5">Origem</label>
+                                        <select
+                                          value={period.endClockSource || 'local'}
+                                          onChange={(e) => {
+                                            const updated = [...seasonalPeriods];
+                                            updated[index].endClockSource = e.target.value as 'local' | 'utc';
+                                            setSeasonalPeriods(updated);
+                                          }}
+                                          className="w-full bg-black/60 border border-white/10 rounded py-1 px-1.5 text-[10px] text-white focus:outline-none focus:border-amber-400/50 cursor-pointer"
+                                        >
+                                          <option value="local">Hora Local</option>
+                                          <option value="utc">Hora UTC</option>
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label className="text-[7.5px] font-bold text-amber-300 uppercase block mb-0.5">Desvio Final</label>
+                                        <input
+                                          type="text"
+                                          placeholder="0"
+                                          value={period.finalShift || '0'}
+                                          onChange={(e) => {
+                                            const updated = [...seasonalPeriods];
+                                            updated[index].finalShift = e.target.value;
+                                            setSeasonalPeriods(updated);
+                                          }}
+                                          className="w-full bg-black/60 border border-white/10 rounded py-1 px-2 text-[10px] font-mono text-amber-300 font-bold placeholder:text-white/20 focus:outline-none focus:border-amber-400/50"
+                                        />
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                {/* Regras de Transição (Início e Fim) */}
+                                <div className="grid grid-cols-5 gap-2">
                               <div className="col-span-3">
                                 <label className="text-[8px] font-bold text-white/40 uppercase tracking-wider block mb-1">
                                   {language === 'pt' ? `Início (Regra)` : `Start (Rule)`}
@@ -2086,7 +2424,9 @@ export const LocationSearchModal: React.FC<LocationSearchModalProps> = ({
                                 />
                               </div>
                             </div>
-                          </div>
+                          </>
+                          )}
+                        </div>
                         );
                       })}
                     </div>
@@ -2118,8 +2458,56 @@ export const LocationSearchModal: React.FC<LocationSearchModalProps> = ({
                     </button>
                   </>
                 )}
+
+                {/* Opção Mudança De Fuso Horario Local Previsto Por Local dentro da Variação Sazonal */}
+                <div className="mt-4 pt-3 border-t border-white/10 space-y-2">
+                  <PermanentChangeTab
+                    language={language}
+                    changes={permanentTimezoneChanges}
+                    setChanges={setPermanentTimezoneChanges}
+                  />
+                </div>
               </div>
             )}
+          </div>
+            </>
+          ) : (
+            <div className="mt-3">
+              <PermanentChangeTab
+                language={language}
+                changes={permanentTimezoneChanges}
+                setChanges={setPermanentTimezoneChanges}
+              />
+            </div>
+          )}
+
+          {/* Indicador de Aplicação Simultânea */}
+          <div className="mt-4 p-2.5 rounded-2xl bg-black/40 border border-white/10 flex flex-col sm:flex-row items-center justify-between gap-2 text-[9px] font-mono">
+            <div className="flex items-center gap-1.5 text-amber-300">
+              <span className={`w-2 h-2 rounded-full ${enableSeasonalVariation ? 'bg-amber-400 animate-pulse' : 'bg-white/20'}`} />
+              <span className="font-bold">
+                {language === 'pt' ? 'Variação Sazonal:' : 'Seasonal Variation:'}
+              </span>
+              <span className="text-white/80">
+                {enableSeasonalVariation
+                  ? (seasonalMode === 'permanent'
+                      ? (language === 'pt' ? '1 Regra Permanente' : '1 Permanent Rule')
+                      : `${seasonalPeriods.length} ${language === 'pt' ? 'Período(s)' : 'Period(s)'}`)
+                  : (language === 'pt' ? 'Desativada' : 'Disabled')}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5 text-emerald-300">
+              <span className={`w-2 h-2 rounded-full ${permanentTimezoneChanges.length > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-white/20'}`} />
+              <span className="font-bold">
+                {language === 'pt' ? 'Fuso Local Previsto:' : 'Predicted Local Offset:'}
+              </span>
+              <span className="text-white/80">
+                {permanentTimezoneChanges.length > 0
+                  ? `${permanentTimezoneChanges.length} ${language === 'pt' ? 'Regra(s) de Fuso' : 'Offset Rule(s)'}`
+                  : (language === 'pt' ? 'Nenhuma regra' : 'No rules')}
+              </span>
+            </div>
           </div>
 
           <button 

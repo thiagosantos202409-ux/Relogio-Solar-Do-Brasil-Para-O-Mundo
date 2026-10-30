@@ -38,6 +38,7 @@ export interface CustomTimeChangeSeason {
 export interface SeasonalTimeChangeConfig {
   enabled: boolean;
   format: CycleFormat; // 'single' (XXX1 a XXX4) or 'range' (XXX1/XXX2 a XXX3/XXX4)
+  allowOverlap?: boolean; // Permitir sobreposição e acúmulo de variações/regras sazonais
   startYear: number; // Ano / Temporada de Início (ex: 2024)
   endYear: number; // Ano / Temporada de Encerramento (ex: 2027)
   seasonCount?: number; // Quantidade de temporadas geradas (ex: 1, 4, 10, 20, 50, etc.)
@@ -97,6 +98,7 @@ export type SeasonVigencyScope = 'single' | 'range' | 'permanent';
 
 export interface SeasonManagerConfig {
   enabled: boolean;
+  allowOverlap?: boolean; // Permitir sobrepor e acumular variações sazonais umas em cima das outras
   cycleFormat: CycleFormat; // 'single' (XXXX) or 'range' (XXXX/YYYY)
   vigencyScope?: SeasonVigencyScope; // 'single' | 'range' | 'permanent'
   isRangeMode: boolean; // true = interval (XXX1 a XXX9 or XXX1/XXX2 a XXX9/XX10 or Permanente)
@@ -255,6 +257,7 @@ const currentYear = new Date().getFullYear();
 
 export const DEFAULT_SEASONAL_TIME_CHANGE_CONFIG: SeasonalTimeChangeConfig = {
   enabled: true,
+  allowOverlap: false, // Desabilitado por padrão para aplicar estritamente o desvio pedido sem duplicar/pular 2h+
   format: 'range', // Default to bi-annual cycle XXX1/XXX2 a XXX3/XXX4
   startYear: currentYear - 1,
   endYear: currentYear + 2,
@@ -270,6 +273,7 @@ export const DEFAULT_SEASONAL_TIME_CHANGE_CONFIG: SeasonalTimeChangeConfig = {
 
 export const DEFAULT_SEASON_MANAGER_CONFIG: SeasonManagerConfig = {
   enabled: true,
+  allowOverlap: false, // Desabilitado por padrão para evitar desvios duplicados
   cycleFormat: 'single',
   isRangeMode: false,
   targetYear: currentYear,
@@ -287,6 +291,7 @@ export const DEFAULT_SEASON_MANAGER_CONFIG: SeasonManagerConfig = {
   soundAlertOnSeasonChange: true,
   soundAlertOnTimeChange: true
 };
+
 
 /**
  * High-quality Web Audio API short alert synthesis for season & time change transitions.
@@ -1328,11 +1333,14 @@ export interface ManagedTimeShiftResult {
   active: boolean;
   shiftMinutes: number;
   activePeriod: TimeChangePeriodItem | null;
+  activePeriods: TimeChangePeriodItem[];
+  stackedCount: number;
   nextTransition: { name: string; date: Date; shiftChange: number } | null;
 }
 
 /**
- * Evaluates whether any configured Seasonal Time Change period is currently active
+ * Evaluates whether any configured Seasonal Time Change period is currently active.
+ * Supports overlapping/stacking multiple active rules when allowOverlap !== false.
  */
 export function resolveManagedTimeShift(
   config: SeasonManagerConfig,
@@ -1340,23 +1348,53 @@ export function resolveManagedTimeShift(
   baseOffsetMinutes: number = 0
 ): ManagedTimeShiftResult {
   if (!config.enabled || !config.timeChange || !config.timeChange.enabled) {
-    return { active: false, shiftMinutes: 0, activePeriod: null, nextTransition: null };
+    return { active: false, shiftMinutes: 0, activePeriod: null, activePeriods: [], stackedCount: 0, nextTransition: null };
   }
 
   const schedule = generateTimeChangeSchedule(config.timeChange, currentMs, baseOffsetMinutes);
-  const activePeriod = schedule.find(s => s.isCurrent) || null;
+  const activePeriods = schedule.filter(s => s.isCurrent);
 
-  if (activePeriod) {
-    return {
-      active: true,
-      shiftMinutes: activePeriod.shiftMinutes,
-      activePeriod,
-      nextTransition: {
-        name: `Fim do ${config.timeChange.label || 'Horário Sazonal'}`,
-        date: new Date(activePeriod.endEpoch),
-        shiftChange: -activePeriod.shiftMinutes
-      }
-    };
+  const isOverlapAllowed = config.allowOverlap !== false && config.timeChange.allowOverlap !== false;
+
+  if (activePeriods.length > 0) {
+    if (isOverlapAllowed) {
+      // Sum up shifts of ALL active overlapping seasonal rules
+      const totalShiftMinutes = activePeriods.reduce((sum, p) => sum + p.shiftMinutes, 0);
+      const primaryPeriod = activePeriods[0];
+      
+      // Nearest ending transition among active overlapping rules
+      const nearestEndPeriod = [...activePeriods].sort((a, b) => a.endEpoch - b.endEpoch)[0];
+
+      return {
+        active: true,
+        shiftMinutes: totalShiftMinutes,
+        activePeriod: primaryPeriod,
+        activePeriods,
+        stackedCount: activePeriods.length,
+        nextTransition: {
+          name: activePeriods.length > 1 
+            ? `Fim de Regra Sobreposta (${nearestEndPeriod.displayName})`
+            : `Fim do ${config.timeChange.label || 'Horário Sazonal'}`,
+          date: new Date(nearestEndPeriod.endEpoch),
+          shiftChange: -nearestEndPeriod.shiftMinutes
+        }
+      };
+    } else {
+      // Single active rule mode
+      const activePeriod = activePeriods[0];
+      return {
+        active: true,
+        shiftMinutes: activePeriod.shiftMinutes,
+        activePeriod,
+        activePeriods: [activePeriod],
+        stackedCount: 1,
+        nextTransition: {
+          name: `Fim do ${config.timeChange.label || 'Horário Sazonal'}`,
+          date: new Date(activePeriod.endEpoch),
+          shiftChange: -activePeriod.shiftMinutes
+        }
+      };
+    }
   }
 
   // Find next upcoming transition
@@ -1365,6 +1403,8 @@ export function resolveManagedTimeShift(
     active: false,
     shiftMinutes: 0,
     activePeriod: null,
+    activePeriods: [],
+    stackedCount: 0,
     nextTransition: upcoming ? {
       name: `Início do ${config.timeChange.label || 'Horário Sazonal'}`,
       date: new Date(upcoming.startEpoch),
