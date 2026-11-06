@@ -1526,10 +1526,10 @@ export function getDstForecast(
         currentShiftMinutes: currentCheck.isDst ? currentCheck.shiftMinutes : 0,
         statusLabelPt: currentCheck.isDst 
           ? `Variação Sazonal Ativa (+${currentCheck.shiftMinutes} min)`
-          : `Programado pelo Usuário (+${shift} min)`,
+          : 'Horário Padrão (Variação Sazonal Inativa)',
         statusLabelEn: currentCheck.isDst 
           ? `Seasonal Shift Active (+${currentCheck.shiftMinutes} min)`
-          : `Programmed by User (+${shift} min)`,
+          : 'Standard Time (Seasonal Shift Inactive)',
         ruleDescription: currentCheck.ruleDescription || tc.label || 'Variação Sazonal Programada (Independente do País)',
         isSeasonalVariationEnabled: true,
         isUserProgrammed: true

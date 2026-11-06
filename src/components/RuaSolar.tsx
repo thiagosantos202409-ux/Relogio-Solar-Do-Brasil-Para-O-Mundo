@@ -1440,24 +1440,99 @@ export const RuaSolar: React.FC<RuaSolarProps> = ({
 
           {!isLightingPanelMinimized && (
             <>
-              {/* Solar Altitude & Threshold Telemetry */}
-              <div className="grid grid-cols-2 gap-1.5 text-[9px] font-mono text-white/80">
-                <div className="bg-black/35 p-1.5 rounded-lg border border-white/5 flex flex-col gap-0.5">
-                  <span className="text-[7px] text-white/40 uppercase">Altitude Solar</span>
-                  <span className={`text-[11px] font-bold ${altitude >= 0 ? 'text-amber-400' : altitude > -6 ? 'text-orange-300' : 'text-indigo-300'}`}>
-                    {altitude > 0 ? `+${altitude.toFixed(2)}°` : `${altitude.toFixed(2)}°`}
+              {/* Solar Altitude & Threshold Telemetry Visual Field */}
+              <div className="bg-slate-900/90 border border-amber-500/30 rounded-xl p-2.5 flex flex-col gap-2 font-mono text-[9px]">
+                <div className="flex items-center justify-between text-amber-300 font-bold border-b border-white/10 pb-1.5">
+                  <span className="flex items-center gap-1.5">
+                    <Sun className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Fotocélula Solar (Tempo Real)</span>
+                  </span>
+                  <span className="text-[8px] text-white/50 bg-white/5 px-1.5 py-0.5 rounded border border-white/10">
+                    {isStreetlightTransitionEnabled ? 'Transição Suave' : 'Liga/Desliga Direto'}
                   </span>
                 </div>
-                <div className="bg-black/35 p-1.5 rounded-lg border border-white/5 flex flex-col gap-0.5">
-                  <span className="text-[7px] text-white/40 uppercase">Condição Solar</span>
-                  <span className="text-[8px] font-semibold text-white/90 truncate">
-                    {altitude >= 0 
-                      ? 'Dia (> 0°)' 
-                      : altitude > -6 
-                        ? 'Crepúsculo (0° a -6°)' 
-                        : 'Noite (≤ -6°)'
-                    }
-                  </span>
+
+                {/* 3-Column Comparative Metrics Grid */}
+                <div className="grid grid-cols-3 gap-1.5 text-center">
+                  <div className="bg-black/50 p-1.5 rounded-lg border border-white/10 flex flex-col items-center justify-center">
+                    <span className="text-[7px] text-emerald-400 font-bold uppercase tracking-wider">Limite Off</span>
+                    <span className="text-[11px] font-extrabold text-white">
+                      {streetlightOffAngle > 0 ? `+${streetlightOffAngle.toFixed(1)}°` : `${streetlightOffAngle.toFixed(1)}°`}
+                    </span>
+                    <span className="text-[6.5px] text-white/40">(&ge; {streetlightOffAngle.toFixed(1)}° = 0%)</span>
+                  </div>
+
+                  <div className="bg-amber-500/15 p-1.5 rounded-lg border border-amber-500/30 flex flex-col items-center justify-center shadow-[inset_0_0_10px_rgba(251,191,36,0.1)]">
+                    <span className="text-[7px] text-amber-300 font-bold uppercase tracking-wider">Altitude Solar</span>
+                    <span className={`text-[12px] font-black ${
+                      altitude >= streetlightOffAngle ? 'text-emerald-300' : altitude <= streetlightOnAngle ? 'text-amber-400' : 'text-orange-300'
+                    }`}>
+                      {altitude > 0 ? `+${altitude.toFixed(2)}°` : `${altitude.toFixed(2)}°`}
+                    </span>
+                    <span className="text-[6.5px] text-amber-200/70 font-semibold">Atual</span>
+                  </div>
+
+                  <div className="bg-black/50 p-1.5 rounded-lg border border-white/10 flex flex-col items-center justify-center">
+                    <span className="text-[7px] text-amber-400 font-bold uppercase tracking-wider">Limite On</span>
+                    <span className="text-[11px] font-extrabold text-white">
+                      {streetlightOnAngle > 0 ? `+${streetlightOnAngle.toFixed(1)}°` : `${streetlightOnAngle.toFixed(1)}°`}
+                    </span>
+                    <span className="text-[6.5px] text-white/40">(&le; {streetlightOnAngle.toFixed(1)}° = 100%)</span>
+                  </div>
+                </div>
+
+                {/* Visual Scale Bar Demonstrating Real-Time Position */}
+                <div className="flex flex-col gap-1 pt-0.5">
+                  <div className="flex justify-between text-[7px] text-white/60 font-semibold px-0.5">
+                    <span className="text-emerald-400">Desligado (&gt; {streetlightOffAngle.toFixed(1)}°)</span>
+                    <span className="text-orange-300">Zona Transição</span>
+                    <span className="text-amber-400">Ligado (&lt; {streetlightOnAngle.toFixed(1)}°)</span>
+                  </div>
+                  <div className="relative w-full h-3 bg-gradient-to-r from-emerald-500/30 via-orange-500/30 to-amber-500/40 rounded-full border border-white/10 overflow-hidden">
+                    {/* Visual Marker Pin for current solar altitude */}
+                    {(() => {
+                      const maxVal = Math.max(streetlightOffAngle + 4, 5);
+                      const minVal = Math.min(streetlightOnAngle - 4, -15);
+                      const clampedAlt = Math.max(minVal, Math.min(maxVal, altitude));
+                      const posPercent = 100 - ((clampedAlt - minVal) / (maxVal - minVal)) * 100;
+                      return (
+                        <div 
+                          className="absolute top-0 bottom-0 w-2 bg-white shadow-[0_0_10px_#ffffff] -translate-x-1/2 rounded-full z-10 transition-all duration-300 border border-black/40"
+                          style={{ left: `${Math.max(3, Math.min(97, posPercent))}%` }}
+                          title={`Altitude Solar Atual: ${altitude.toFixed(2)}°`}
+                        />
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                {/* System Decision Explanation */}
+                <div className="text-[8px] leading-snug text-white/90 bg-black/40 p-2 rounded-lg border border-white/10">
+                  {sceneryMode === 'city' && (isCity24hStreetLightsOn || isCity24hStreetLightsOff) ? (
+                    <span className="text-pink-300 font-semibold flex items-start gap-1">
+                      <Building className="w-3 h-3 text-pink-400 flex-shrink-0 mt-0.5" />
+                      <span>
+                        {isCity24hStreetLightsOn 
+                          ? 'Trava 24h (Cidade): O sol não ultrapassa 0° neste dia civil. Postes mantidos 100% LIGADOS continuamente.'
+                          : 'Trava 24h (Cidade): O sol não cai abaixo de -6° neste dia civil. Postes mantidos 0% DESLIGADOS continuamente.'}
+                      </span>
+                    </span>
+                  ) : altitude >= streetlightOffAngle ? (
+                    <div className="text-emerald-300 font-medium">
+                      ☀️ <strong>Decisão: DESLIGADO (0%)</strong><br />
+                      Altitude solar (<strong>{altitude.toFixed(2)}°</strong>) está no ou acima do limite <strong>Off ({streetlightOffAngle.toFixed(1)}°)</strong>.
+                    </div>
+                  ) : altitude <= streetlightOnAngle ? (
+                    <div className="text-amber-300 font-medium">
+                      🌙 <strong>Decisão: LIGADO (100%)</strong><br />
+                      Altitude solar (<strong>{altitude.toFixed(2)}°</strong>) está no ou abaixo do limite <strong>On ({streetlightOnAngle.toFixed(1)}°)</strong>.
+                    </div>
+                  ) : (
+                    <div className="text-orange-300 font-medium">
+                      🌅 <strong>Decisão: TRANSIÇÃO PROPORCIONAL ({Math.round(streetLightIntensity * 100)}%)</strong><br />
+                      Altitude (<strong>{altitude.toFixed(2)}°</strong>) entre <strong>{streetlightOffAngle.toFixed(1)}°</strong> e <strong>{streetlightOnAngle.toFixed(1)}°</strong>.
+                    </div>
+                  )}
                 </div>
               </div>
 

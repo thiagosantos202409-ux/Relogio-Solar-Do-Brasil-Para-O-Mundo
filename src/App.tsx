@@ -28,6 +28,7 @@ import { ClockWidgets } from './components/ClockWidgets';
 import { SolarDeVista } from './components/SolarDeVista';
 import { SkyView } from './components/SkyView';
 import { RuaSolar } from './components/RuaSolar';
+import { SpatialXRBlocksApp } from './components/SpatialXRBlocksApp';
 import { ThemeSelector, Theme } from './components/ThemeSelector';
 import { Gear } from './components/Gear';
 import Fireworks from './components/Fireworks';
@@ -669,6 +670,7 @@ export default function App() {
   };
   
   const [showSkyView, setShowSkyView] = useState(false);
+  const [showSpatialXRBlocksApp, setShowSpatialXRBlocksApp] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [isOptimizationMode, setIsOptimizationMode] = useState(() => localStorage.getItem('isOptimizationMode') === 'true');
   const [isBestPerformanceMode, setIsBestPerformanceMode] = useState(() => localStorage.getItem('isBestPerformanceMode') === 'true');
@@ -792,7 +794,7 @@ export default function App() {
   
   const [globalTimezoneMode, setGlobalTimezoneMode] = useState<'local' | 'utc' | 'geographic' | 'full-hour' | 'custom'>(() => {
     const saved = localStorage.getItem('globalTimezoneMode');
-    return (saved as 'local' | 'utc' | 'geographic' | 'full-hour' | 'custom') || 'geographic';
+    return (saved as 'local' | 'utc' | 'geographic' | 'full-hour' | 'custom') || 'local';
   });
 
   const [globalCustomTimezoneOffset, setGlobalCustomTimezoneOffset] = useState<number>(() => {
@@ -1333,7 +1335,7 @@ export default function App() {
          if (period.enabled === false) continue;
          if (period.periodMode === 'selection') {
            const evalRes = evaluateSeasonalPeriodShift(period, timeMs);
-           if (evalRes.active || evalRes.shift !== 0) {
+           if (evalRes.active) {
              totalShift += evalRes.shift;
            }
            continue;
@@ -1739,9 +1741,9 @@ export default function App() {
   // Derived primitives for stable effects
   const localCivilTimeMs = useMemo(() => {
     const currentMs = isSimulation ? simulationDate : nowMs;
-    if (!solarInfo) return currentMs + baseOffset * 60000;
+    if (!solarInfo) return currentMs + (baseOffset + effectiveShift) * 60000;
     return currentMs + solarInfo.timezoneOffset * 60000;
-  }, [isSimulation, simulationDate, nowMs, solarInfo?.timezoneOffset, baseOffset]);
+  }, [isSimulation, simulationDate, nowMs, solarInfo?.timezoneOffset, baseOffset, effectiveShift]);
 
   const localCivilTime = useMemo(() => new Date(localCivilTimeMs), [localCivilTimeMs]);
 
@@ -1771,7 +1773,7 @@ export default function App() {
       // 1. Determine DST status at UTC time t
       const isDST = checkDSTForTime(t, manualLocation, offset);
       const dstShift = isDST ? getActiveSeasonalShift(t, manualLocation, offset) : 0;
-      const totalOffset = offset + dstShift + altShift + 180;
+      const totalOffset = offset + dstShift + altShift;
       
       // 2. Compute civil time at absolute UTC time t
       const civilMs = t + totalOffset * 60000;
@@ -2093,28 +2095,16 @@ export default function App() {
     // Approximate UTC using standard offset
     const estBaseUtcMs = targetCivilMs - ((baseOffset + selectedAlternativeShift) * 60000);
     
-    // Check DST status for the approximate timestamp
-    let isTargetDST = false;
-    if (manualDstOverride === true) {
-      isTargetDST = true;
-    } else if (manualDstOverride === false) {
-      isTargetDST = false;
-    } else {
-      isTargetDST = checkDSTForTime(estBaseUtcMs, manualLocation, baseOffset);
+    let activeShift = 0;
+    if (enableSeasonalVariation) {
+      const loc = manualLocation || location;
+      const locShift = loc ? getActiveSeasonalShift(estBaseUtcMs, loc, baseOffset) : 0;
+      const mgrShift = resolveManagedTimeShift(seasonManagerConfig, estBaseUtcMs, baseOffset);
+      activeShift = (mgrShift.active && mgrShift.shiftMinutes !== 0) ? mgrShift.shiftMinutes : locShift;
     }
     
-    const dstShift = isTargetDST ? (getActiveSeasonalShift(estBaseUtcMs, manualLocation, baseOffset) || (manualLocation?.dstInfo?.shift ?? 60)) : 0;
-    const targetEffectiveShift = dstShift + selectedAlternativeShift;
-    let finalUtcMs = targetCivilMs - ((baseOffset + targetEffectiveShift) * 60000);
-
-    // Second pass verification to eliminate edge boundary jumps
-    if (manualDstOverride === null) {
-      const verifiedDST = checkDSTForTime(finalUtcMs, manualLocation, baseOffset);
-      if (verifiedDST !== isTargetDST) {
-        const verifiedShift = verifiedDST ? (getActiveSeasonalShift(finalUtcMs, manualLocation, baseOffset) || (manualLocation?.dstInfo?.shift ?? 60)) : 0;
-        finalUtcMs = targetCivilMs - ((baseOffset + verifiedShift + selectedAlternativeShift) * 60000);
-      }
-    }
+    const targetEffectiveShift = activeShift + selectedAlternativeShift;
+    const finalUtcMs = targetCivilMs - ((baseOffset + targetEffectiveShift) * 60000);
 
     if (!isNaN(finalUtcMs) && isFinite(finalUtcMs)) {
       setNowMs(finalUtcMs);
@@ -2151,28 +2141,16 @@ export default function App() {
     // Approximate UTC using standard offset
     const estBaseUtcMs = targetCivilMs - ((baseOffset + selectedAlternativeShift) * 60000);
     
-    // Check DST status for the approximate timestamp
-    let isTargetDST = false;
-    if (manualDstOverride === true) {
-      isTargetDST = true;
-    } else if (manualDstOverride === false) {
-      isTargetDST = false;
-    } else {
-      isTargetDST = checkDSTForTime(estBaseUtcMs, manualLocation, baseOffset);
+    let activeShift = 0;
+    if (enableSeasonalVariation) {
+      const loc = manualLocation || location;
+      const locShift = loc ? getActiveSeasonalShift(estBaseUtcMs, loc, baseOffset) : 0;
+      const mgrShift = resolveManagedTimeShift(seasonManagerConfig, estBaseUtcMs, baseOffset);
+      activeShift = (mgrShift.active && mgrShift.shiftMinutes !== 0) ? mgrShift.shiftMinutes : locShift;
     }
     
-    const dstShift = isTargetDST ? (getActiveSeasonalShift(estBaseUtcMs, manualLocation, baseOffset) || (manualLocation?.dstInfo?.shift ?? 60)) : 0;
-    const targetEffectiveShift = dstShift + selectedAlternativeShift;
-    let finalUtcMs = targetCivilMs - ((baseOffset + targetEffectiveShift) * 60000);
-
-    // Second pass verification to eliminate edge boundary jumps
-    if (manualDstOverride === null) {
-      const verifiedDST = checkDSTForTime(finalUtcMs, manualLocation, baseOffset);
-      if (verifiedDST !== isTargetDST) {
-        const verifiedShift = verifiedDST ? (getActiveSeasonalShift(finalUtcMs, manualLocation, baseOffset) || (manualLocation?.dstInfo?.shift ?? 60)) : 0;
-        finalUtcMs = targetCivilMs - ((baseOffset + verifiedShift + selectedAlternativeShift) * 60000);
-      }
-    }
+    const targetEffectiveShift = activeShift + selectedAlternativeShift;
+    const finalUtcMs = targetCivilMs - ((baseOffset + targetEffectiveShift) * 60000);
 
     if (!isNaN(finalUtcMs) && isFinite(finalUtcMs)) {
       setNowMs(finalUtcMs);
@@ -2827,6 +2805,14 @@ export default function App() {
             >
               <Sun className="w-3 h-3" />
               <span className="uppercase tracking-widest text-[8px] font-bold">Ver o Sol</span>
+            </button>
+            <button 
+              onClick={() => setShowSpatialXRBlocksApp(true)}
+              className="flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-amber-500/20 border border-amber-400/40 rounded-full hover:from-amber-500/30 hover:to-orange-500/30 transition-all text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.2)] cursor-pointer"
+              title="Abrir App Spatial WebXR com XR Blocks e Modo Câmera Tela Cheia"
+            >
+              <Sparkles className="w-3 h-3 text-amber-400 animate-pulse" />
+              <span className="uppercase tracking-widest text-[8px] font-extrabold">Spatial WebXR</span>
             </button>
             <button 
               onClick={() => setIsHighContrast(!isHighContrast)}
@@ -5176,6 +5162,23 @@ export default function App() {
           locationName={manualLocation?.name || (language === 'pt' ? 'Sua Posição' : 'Your Location')}
           timezoneOffset={baseOffset}
         />
+        {showSpatialXRBlocksApp && (
+          <SpatialXRBlocksApp
+            latitude={effectiveCoords?.latitude ?? 0}
+            longitude={effectiveCoords?.longitude ?? 0}
+            locationName={manualLocation?.name || (language === 'pt' ? 'Sua Posição' : 'Your Location')}
+            solarDate={displayDate}
+            altitude={solarInfo?.altitude ?? 0}
+            azimuth={solarInfo?.azimuth ?? 0}
+            civilTimeStr={formatFullTime(localCivilTime, false)}
+            solarTimeStr={solarInfo ? `${String(solarInfo.solarDate.getUTCHours()).padStart(2, '0')}:${String(solarInfo.solarDate.getUTCMinutes()).padStart(2, '0')}` : '--:--'}
+            dateStr={displayDate.toLocaleDateString(language === 'pt' ? 'pt-BR' : 'en-US', { day: '2-digit', month: 'short', year: 'numeric' })}
+            onClose={() => setShowSpatialXRBlocksApp(false)}
+            onSelectLocation={(lat, lon, name) => {
+              selectLocation({ latitude: lat, longitude: lon, name, description: name, timezoneOffset: 0 });
+            }}
+          />
+        )}
       </AnimatePresence>
 
       {/* Toast Notification */}

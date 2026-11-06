@@ -256,7 +256,7 @@ export const isVigenciaActive = (vigencia: string | undefined, validityType: 'si
 const currentYear = new Date().getFullYear();
 
 export const DEFAULT_SEASONAL_TIME_CHANGE_CONFIG: SeasonalTimeChangeConfig = {
-  enabled: true,
+  enabled: false,
   allowOverlap: false, // Desabilitado por padrão para aplicar estritamente o desvio pedido sem duplicar/pular 2h+
   format: 'range', // Default to bi-annual cycle XXX1/XXX2 a XXX3/XXX4
   startYear: currentYear - 1,
@@ -272,7 +272,7 @@ export const DEFAULT_SEASONAL_TIME_CHANGE_CONFIG: SeasonalTimeChangeConfig = {
 };
 
 export const DEFAULT_SEASON_MANAGER_CONFIG: SeasonManagerConfig = {
-  enabled: true,
+  enabled: false,
   allowOverlap: false, // Desabilitado por padrão para evitar desvios duplicados
   cycleFormat: 'single',
   isRangeMode: false,

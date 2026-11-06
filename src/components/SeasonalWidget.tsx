@@ -89,30 +89,53 @@ export const SeasonalWidget = React.memo(({
           <Calendar size={13} className="text-amber-400" />
           <span>{isPt ? 'Previsão de Estações do Ano' : 'Seasonal Forecast'}</span>
         </div>
-        <div className="flex items-center gap-1.5">
-          {onToggleSeasonalVariation ? (
+        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+          {/* Automatic vs Desligado Mode Toggle Button */}
+          {onToggleSeasonalVariation && (
             <button
               type="button"
               onClick={() => onToggleSeasonalVariation(!enableSeasonalVariation)}
-              className={`text-[8px] font-mono font-bold px-1.5 py-0.5 rounded border transition-all cursor-pointer flex items-center gap-1 ${
+              className={`text-[8px] font-mono font-bold px-2 py-0.5 rounded border transition-all cursor-pointer flex items-center gap-1 ${
                 enableSeasonalVariation
-                  ? 'bg-amber-400/15 text-amber-300 border-amber-400/30 hover:bg-amber-400/25'
-                  : 'bg-white/5 text-white/40 border-white/10 hover:text-white hover:bg-white/10'
+                  ? 'bg-amber-400/20 text-amber-300 border-amber-400/40 hover:bg-amber-400/30'
+                  : 'bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white'
               }`}
-              title={isPt ? 'Clique para ativar/desativar se a variação programada afeta as estações' : 'Click to toggle if programmed variation affects seasons'}
+              title={
+                isPt
+                  ? (enableSeasonalVariation ? 'Modo Automático Ativo: Clique para Desligar a variação sazonal' : 'Modo Desligado: Clique para Ativar o modo Automático (Sendo como previsto)')
+                  : (enableSeasonalVariation ? 'Automatic Mode Active: Click to turn OFF seasonal variation' : 'Off Mode: Click to enable Automatic mode')
+              }
             >
-              <span>{enableSeasonalVariation ? '☀️' : '🚫'}</span>
-              <span>{enableSeasonalVariation ? (isPt ? 'Variação Ativa' : 'Variation On') : (isPt ? 'Variação Inativa' : 'Variation Off')}</span>
+              <span>{enableSeasonalVariation ? '⚡' : '🚫'}</span>
+              <span>{enableSeasonalVariation ? (isPt ? 'Automático' : 'Auto') : (isPt ? 'Desligado' : 'Off')}</span>
             </button>
-          ) : (
-            <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded border ${
-              enableSeasonalVariation
-                ? 'bg-amber-400/10 text-amber-300 border-amber-400/20'
-                : 'bg-white/5 text-white/40 border-white/10'
-            }`}>
-              {enableSeasonalVariation ? (isPt ? 'Variação Ativa' : 'Variation Active') : (isPt ? 'Padrão Fixo' : 'Fixed Standard')}
-            </span>
           )}
+
+          {/* Dynamic Status Indicator Badge */}
+          <span
+            className={`text-[8px] font-mono font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 ${
+              enableSeasonalVariation && dstForecast.isCurrentlyActive
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                : 'bg-white/5 text-white/40 border-white/10'
+            }`}
+            title={
+              !enableSeasonalVariation
+                ? (isPt ? 'Variação Sazonal Desligada pelo Usuário' : 'Seasonal Variation Turned Off')
+                : isPt
+                  ? (dstForecast.isCurrentlyActive ? 'Mudança de horário em vigor (Automático)' : 'Horário padrão / Variação inativa (Automático)')
+                  : (dstForecast.isCurrentlyActive ? 'Seasonal time change active (Automatic)' : 'Standard time / Inactive (Automatic)')
+            }
+          >
+            <span>{enableSeasonalVariation && dstForecast.isCurrentlyActive ? '☀️' : '🚫'}</span>
+            <span>
+              {!enableSeasonalVariation
+                ? (isPt ? 'Desligado' : 'Off')
+                : dstForecast.isCurrentlyActive
+                  ? (isPt ? 'Variação Ativa' : 'Variation Active')
+                  : (isPt ? 'Variação Inativa' : 'Variation Inactive')}
+            </span>
+          </span>
+
           {onOpenSeasonManager && (
             <button
               type="button"

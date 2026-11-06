@@ -2955,6 +2955,62 @@ export const SeasonManagerModal: React.FC<SeasonManagerModalProps> = ({
                     </div>
                   </div>
 
+                  {/* Overlapping / Stacking Seasonal Variations Toggle Banner */}
+                  <div className="p-3.5 bg-black/40 rounded-xl border border-amber-400/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Layers className="w-4 h-4 text-amber-400 shrink-0" />
+                        <span className="text-xs font-bold text-white">
+                          {isPt ? 'Permitir Sobrepor As Variações Sazionais (Caso Previsto)' : 'Allow Overlapping Seasonal Variations (If Foreseen)'}
+                        </span>
+                        <span className={`text-[8.5px] font-mono font-bold px-2 py-0.2 rounded-full border ${
+                          (localConfig.allowOverlap !== false && localConfig.timeChange?.allowOverlap !== false)
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40 animate-pulse'
+                            : 'bg-white/5 text-white/50 border-white/10'
+                        }`}>
+                          {(localConfig.allowOverlap !== false && localConfig.timeChange?.allowOverlap !== false)
+                            ? (isPt ? '⚡ SOBREPOSIÇÃO PERMITIDA' : '⚡ OVERLAP ALLOWED')
+                            : (isPt ? '🚫 SEM SOBREPOSIÇÃO' : '🚫 SINGLE RULE ONLY')}
+                        </span>
+                      </div>
+                      <p className="text-[9.5px] text-white/60 leading-relaxed">
+                        {isPt 
+                          ? 'Caso existam múltiplas regras de variações sazonais vigentes simultaneamente na data prevista, ative para que os desvios sejam somados e acumulados em vez de uma regra anular a outra.'
+                          : 'If multiple seasonal variation rules overlap in a predicted period, enable to allow shifts to stack together instead of replacing one another.'}
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const currentAllowed = localConfig.allowOverlap !== false && localConfig.timeChange?.allowOverlap !== false;
+                        const nextAllowed = !currentAllowed;
+                        setLocalConfig(prev => ({
+                          ...prev,
+                          allowOverlap: nextAllowed,
+                          timeChange: {
+                            ...prev.timeChange,
+                            allowOverlap: nextAllowed
+                          }
+                        }));
+                      }}
+                      className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer shrink-0 ${
+                        (localConfig.allowOverlap !== false && localConfig.timeChange?.allowOverlap !== false)
+                          ? 'bg-amber-400' 
+                          : 'bg-white/20'
+                      }`}
+                      title={isPt ? "Alternar sobreposição de variações sazonais previstas" : "Toggle overlapping foreseen seasonal variations"}
+                    >
+                      <div 
+                        className={`w-4 h-4 rounded-full bg-black absolute top-1 transition-transform ${
+                          (localConfig.allowOverlap !== false && localConfig.timeChange?.allowOverlap !== false)
+                            ? 'left-6' 
+                            : 'left-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
                   {/* Local DST Status & Astronomical Forecast Banner */}
                   <div className="p-3.5 bg-black/40 rounded-xl border border-amber-400/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="space-y-0.5">
